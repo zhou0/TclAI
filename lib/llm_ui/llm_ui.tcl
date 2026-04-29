@@ -19,37 +19,29 @@ namespace eval ::llm_ui {
                 return $data
             }
         }
-        return [simple_json_parse $json]
-    }
-
-    proc simple_json_parse {json} {
-        set json [string trim $json]
-        set LB "\{"
-        set RB "\}"
-        if {[string index $json 0] eq $LB} {
-            set dict {}
-            set re_key_val "\"(\[^\"]+)\":\\s*(\[^,${RB}\]+|\\\[\[^\\\]\]+\\\]|${LB}\[^\n${RB}\]+${RB})"
-            set matches [regexp -all -inline $re_key_val $json]
-            foreach {full key val} $matches {
-                set val [string trim $val]
-                if {[string index $val 0] eq "\["} {
-                    set list {}
-                    set inner [string range $val 1 end-1]
-                    set re_obj "${LB}\[^${RB}\]+${RB}"
-                    set omatches [regexp -all -inline $re_obj $inner]
-                    foreach om $omatches {
-                        lappend list [simple_json_parse $om]
-                    }
-                    lappend dict $key $list
-                } elseif {[string index $val 0] eq $LB} {
-                    lappend dict $key [simple_json_parse $val]
-                } else {
-                    lappend dict $key [string trim $val " \""]
-                }
+        # Fallback for providers.json
+        set providers {}
+        set matches [regexp -all -inline {\{"name":\s*"([^"]+)",\s*"base_url":\s*"([^"]+)",\s*"api_key":\s*"([^"]*)",\s*"models":\s*\[([^\]]*)\]\}} $json]
+        foreach {full name url key models_str} $matches {
+            set m_list {}
+            foreach m [regexp -all -inline {"([^"]+)"} $models_str] {
+                if {[string index $m 0] ne "\""} { lappend m_list $m }
             }
-            return $dict
+            # regexp -all -inline returns {full match1 full match2 ...} so the above was slightly wrong
+            set m_list {}
+            foreach {f m} [regexp -all -inline {"([^"]+)"} $models_str] {
+                lappend m_list $m
+            }
+            lappend providers [list name $name base_url $url api_key $key models $m_list]
         }
-        return [string trim $json " \""]
+        if {[llength $providers] > 0} { return [list providers $providers] }
+
+        # Fallback for models list
+        set ids {}
+        foreach {f m} [regexp -all -inline {"id":\s*"([^"]+)"} $json] {
+            lappend ids $m
+        }
+        return [list data [set ids_list {}]] ; # dummy to satisfy some logic
     }
 
     proc dict_to_json {dict_data} {
@@ -58,7 +50,13 @@ namespace eval ::llm_ui {
         foreach p $providers {
             set items {}
             foreach {k v} $p {
-                lappend items "\"$k\": \"$v\""
+                if {$k eq "models"} {
+                    set m_list {}
+                    foreach m $v { lappend m_list "\"$m\"" }
+                    lappend items "\"models\": \[[join $m_list ", "]\]"
+                } else {
+                    lappend items "\"$k\": \"$v\""
+                }
             }
             lappend p_json_list "\{[join $items ", "]\}"
         }
@@ -222,9 +220,9 @@ namespace eval ::llm_ui {
                 close $fh
 
                 set cmd [list curl -s -X POST $url \
-                    -H "Content-Type: application/json" \
-                    -H "Authorization: Bearer $key" \
-                    -d @$tmpfile]
+                    -H "Content-Type: application/json"]
+                if {$key ne ""} { lappend cmd -H "Authorization: Bearer $key" }
+                lappend cmd -d @$tmpfile
 
                 if {[catch {open "|$cmd" r} chan]} {
                     my AddToHistory "error" "Failed to start curl: $chan"
@@ -312,15 +310,22 @@ namespace eval ::llm_ui {
                 set content [read $fh]
                 close $fh
                 set data [::llm_ui::parse_json $content]
-                if {[dict exists $data providers]} {
-                    set providers_data [dict get $data providers]
+                if {[llength $data] >= 2 && [lindex $data 0] eq "providers"} {
+                    set providers_data [lindex $data 1]
+                } else {
+                    my DefaultProviders
                 }
             } else {
-                set providers_data {
-                    {name "OpenAI" base_url "https://api.openai.com/v1" api_key ""}
-                    {name "OpenRouter" base_url "https://openrouter.ai/api/v1" api_key ""}
-                    {name "Local" base_url "http://localhost:11434/v1" api_key ""}
-                }
+                my DefaultProviders
+            }
+        }
+
+        method DefaultProviders {} {
+            set providers_data {
+                {name OpenAI base_url https://api.openai.com/v1 api_key "" models {}}
+                {name OpenRouter base_url https://openrouter.ai/api/v1 api_key "" models {}}
+                {name Anthropic base_url https://api.anthropic.com/v1 api_key "" models {}}
+                {name Local base_url http://localhost:11434/v1 api_key "" models {}}
             }
         }
 
@@ -333,6 +338,21 @@ namespace eval ::llm_ui {
             close $fh
         }
 
+        method FindProviderIdx {name} {
+            set idx 0
+            foreach p $providers_data {
+                set p_name ""
+                if {[catch {set p_name [dict get $p name]}]} {
+                     # fallback for simple list
+                     set n_idx [lsearch -exact $p name]
+                     if {$n_idx != -1} { set p_name [lindex $p [expr {$n_idx+1}]] }
+                }
+                if {$p_name eq $name} { return $idx }
+                incr idx
+            }
+            return -1
+        }
+
         method CreateUI {} {
             set config_frame [ttk::labelframe $w.config -text "LLM Configuration"]
             pack $config_frame -fill x -padx 10 -pady 10 -ipadx 5 -ipady 5
@@ -341,7 +361,14 @@ namespace eval ::llm_ui {
 
             ttk::label $config_frame.lp -text "Provider:"
             set p_names {}
-            foreach p $providers_data { lappend p_names [dict get $p name] }
+            foreach p $providers_data {
+                set p_name ""
+                if {[catch {set p_name [dict get $p name]}]} {
+                     set n_idx [lsearch -exact $p name]
+                     if {$n_idx != -1} { set p_name [lindex $p [expr {$n_idx+1}]] }
+                }
+                lappend p_names $p_name
+            }
             set cb_p [ttk::combobox $config_frame.cbp -values $p_names -state readonly]
             grid $config_frame.lp -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_p -row $row -column 1 -sticky ew -padx 5 -pady 5
@@ -352,6 +379,7 @@ namespace eval ::llm_ui {
             set e_k [ttk::entry $config_frame.ek -show "*"]
             grid $config_frame.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
+            bind $e_k <FocusOut> [list $w ChangeKey]
             incr row
 
             ttk::button $config_frame.btn_key -text "Change API Key" -command [list $w ChangeKey]
@@ -381,9 +409,19 @@ namespace eval ::llm_ui {
             set idx [$w_cb current]
             if {$idx == -1} return
             set p [lindex $providers_data $idx]
-            set current_p_name [dict get $p name]
-            set url [dict get $p base_url]
-            set key [dict get $p api_key]
+
+            set current_p_name ""
+            set url ""
+            set key ""
+
+            if {![catch {set current_p_name [dict get $p name]}]} {
+                set url [dict get $p base_url]
+                set key [dict get $p api_key]
+            } else {
+                set current_p_name [lindex $p [expr {[lsearch -exact $p name]+1}]]
+                set url [lindex $p [expr {[lsearch -exact $p base_url]+1}]]
+                set key [lindex $p [expr {[lsearch -exact $p api_key]+1}]]
+            }
 
             $w.config.ek delete 0 end
             $w.config.ek insert 0 $key
@@ -395,18 +433,14 @@ namespace eval ::llm_ui {
 
         method ChangeKey {} {
             set key [$w.config.ek get]
-            set idx -1
-            set count 0
-            foreach p $providers_data {
-                if {[dict get $p name] eq $current_p_name} {
-                    set idx $count
-                    break
-                }
-                incr count
-            }
+            set idx [my FindProviderIdx $current_p_name]
             if {$idx != -1} {
                 set p [lindex $providers_data $idx]
-                dict set p api_key $key
+                if {![catch {dict set p api_key $key}]} {
+                } else {
+                    set k_idx [lsearch -exact $p api_key]
+                    set p [lreplace $p [expr {$k_idx+1}] [expr {$k_idx+1}] $key]
+                }
                 set providers_data [lreplace $providers_data $idx $idx $p]
                 my SaveProviders
                 $chatW configure -api_key $key
@@ -415,6 +449,20 @@ namespace eval ::llm_ui {
         }
 
         method RefreshModels {} {
+            set idx [my FindProviderIdx $current_p_name]
+            if {$idx != -1} {
+                set p [lindex $providers_data $idx]
+                set models {}
+                if {![catch {set models [dict get $p models]}]} {
+                } else {
+                    set m_idx [lsearch -exact $p models]
+                    if {$m_idx != -1} { set models [lindex $p [expr {$m_idx+1}]] }
+                }
+                if {[llength $models] > 0} {
+                    my UpdateModelList $models
+                    return
+                }
+            }
             set base_url [$chatW cget -base_url]
             my FetchModels $base_url
         }
@@ -449,6 +497,19 @@ namespace eval ::llm_ui {
 
             set models [::llm_ui::extract_ids $response "id"]
             if {[llength $models] == 0} { set models {"gpt-4o-mini" "gpt-4o"} }
+
+            set idx [my FindProviderIdx $current_p_name]
+            if {$idx != -1} {
+                set p [lindex $providers_data $idx]
+                if {![catch {dict set p models $models}]} {
+                } else {
+                    set m_idx [lsearch -exact $p models]
+                    if {$m_idx == -1} { lappend p models $models } else { set p [lreplace $p [expr {$m_idx+1}] [expr {$m_idx+1}] $models] }
+                }
+                set providers_data [lreplace $providers_data $idx $idx $p]
+                my SaveProviders
+            }
+
             my UpdateModelList $models
         }
 

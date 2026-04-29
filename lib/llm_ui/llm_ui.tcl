@@ -302,24 +302,24 @@ namespace eval ::llm_ui {
             set cb_p [ttk::combobox $config_frame.cbp -values $p_names -state readonly]
             grid $config_frame.lp -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_p -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $cb_p <<ComboboxSelected>> [list [self] OnProviderSelected %W]
+            bind $cb_p <<ComboboxSelected>> [list $w OnProviderSelected %W]
             incr row
 
             ttk::label $config_frame.lk -text "API Key:"
             set e_k [ttk::entry $config_frame.ek -show "*"]
             grid $config_frame.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $e_k <FocusOut> [list [self] SaveKeyAndRefresh %W]
+            bind $e_k <FocusOut> [list $w SaveKeyAndRefresh %W]
             incr row
 
             ttk::label $config_frame.lm -text "Model:"
             set cb_m [ttk::combobox $config_frame.cbm -state readonly]
             grid $config_frame.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
+            bind $cb_m <<ComboboxSelected>> [list $w OnModelSelected %W]
             incr row
 
-            ttk::button $config_frame.btn_refresh -text "Refresh Models" -command [list [self] RefreshModels]
+            ttk::button $config_frame.btn_refresh -text "Refresh Models" -command [list $w RefreshModels]
             grid $config_frame.btn_refresh -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
@@ -327,7 +327,7 @@ namespace eval ::llm_ui {
 
             if {[llength $p_names] > 0} {
                 $cb_p current 0
-                after idle [list [self] OnProviderSelected $cb_p]
+                after idle [list $w OnProviderSelected $cb_p]
             }
         }
 
@@ -399,6 +399,8 @@ namespace eval ::llm_ui {
             set model [$w_cb get]
             $chatW configure -model $model
         }
+
+        export OnProviderSelected SaveKeyAndRefresh RefreshModels OnModelSelected
     }
 
     # Convenience procedure

@@ -1,0 +1,7 @@
+no display name and no $DISPLAY environment variable
+    while executing
+"load /usr/lib/x86_64-linux-gnu/libtk8.6.so"
+    ("package ifneeded Tk 8.6.14" script)
+    invoked from within
+"package require Tk"
+    (file "llm_app.tcl" line 4)

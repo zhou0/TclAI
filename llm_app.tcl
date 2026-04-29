@@ -1,6 +1,7 @@
 set script_dir [file dirname [info script]]
 lappend auto_path [file join $script_dir lib]
 
+package require Tk
 package require llm_ui
 package require ttk::m3::navrail
 
@@ -44,3 +45,10 @@ bind .nav <<NavRailSelected>> {
 
 # Initial screen
 ShowScreen chat
+
+# Start event loop
+if {[info exists tcl_interactive] && $tcl_interactive} {
+    # In interactive mode, don't vwait
+} else {
+    vwait forever
+}

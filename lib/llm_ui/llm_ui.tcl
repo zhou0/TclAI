@@ -260,7 +260,7 @@ namespace eval ::llm_ui {
 
     # Settings Widget Class
     oo::class create SettingsWidgetClass {
-        variable w chatW providers_data provider_keys current_p_name
+        variable w chatW providers_data provider_keys current_p_name cb_p
 
         constructor {path chatWidget args} {
             set w [ttk::frame $path]
@@ -327,7 +327,7 @@ namespace eval ::llm_ui {
 
             if {[llength $p_names] > 0} {
                 $cb_p current 0
-                my OnProviderSelected $cb_p
+                after idle [list [self] OnProviderSelected $cb_p]
             }
         }
 

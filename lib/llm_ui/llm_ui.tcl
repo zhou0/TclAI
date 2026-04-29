@@ -4,7 +4,8 @@ package require TclOO
 package require Tk
 
 namespace eval ::llm_ui {
-    oo::class create ChatWidget {
+    # Internal class
+    oo::class create ChatWidgetClass {
         variable w history input send config_frame
         variable options
         variable messages
@@ -23,11 +24,6 @@ namespace eval ::llm_ui {
             }
             my configure {*}$args
             my CreateUI
-
-            # Pack the main frame if it's not the root
-            if {$w ne "."} {
-                pack $w -fill both -expand yes
-            }
         }
 
         method configure {args} {
@@ -65,11 +61,11 @@ namespace eval ::llm_ui {
             # History Area
             set history_frame [ttk::frame $w.hframe]
             grid $history_frame -row 1 -column 0 -sticky nsew -padx 5 -pady 5
-
+            
             set history [text $history_frame.txt -wrap word -state disabled -height 15]
             set hscroll [ttk::scrollbar $history_frame.vsb -orient vertical -command [list $history yview]]
             $history configure -yscrollcommand [list $hscroll set]
-
+            
             pack $hscroll -side right -fill y
             pack $history -side left -fill both -expand yes
 
@@ -82,18 +78,18 @@ namespace eval ::llm_ui {
             # Input Area
             set input_frame [ttk::frame $w.iframe]
             grid $input_frame -row 2 -column 0 -sticky ew -padx 5 -pady 5
-
+            
             set input [text $input_frame.txt -wrap word -height 4]
             set iscroll [ttk::scrollbar $input_frame.vsb -orient vertical -command [list $input yview]]
             $input configure -yscrollcommand [list $iscroll set]
-
+            
             pack $iscroll -side right -fill y
             pack $input -side left -fill both -expand yes
 
             # Buttons
             set btn_frame [ttk::frame $w.bframe]
             grid $btn_frame -row 3 -column 0 -sticky ew -padx 5 -pady 5
-
+            
             set send [ttk::button $btn_frame.send -text "Send" -command [list [self] SendMessage]]
             set clear [ttk::button $btn_frame.clear -text "Clear Chat" -command [list [self] ClearChat]]
             pack $send -side right -padx 5
@@ -101,7 +97,7 @@ namespace eval ::llm_ui {
 
             grid rowconfigure $w 1 -weight 1
             grid columnconfigure $w 0 -weight 1
-
+            
             my AddToHistory "system" $options(-system_prompt)
         }
 
@@ -124,12 +120,12 @@ namespace eval ::llm_ui {
         method SendMessage {} {
             set msg [string trim [$input get 1.0 end]]
             if {$msg eq ""} return
-
+            
             $input delete 1.0 end
             my AddToHistory "user" $msg
-
+            
             lappend messages [list role "user" content $msg]
-
+            
             my CallAPI
         }
 
@@ -174,7 +170,7 @@ namespace eval ::llm_ui {
                 file delete -force $tmpfile
                 return
             }
-
+            
             fconfigure $chan -blocking 0
             fileevent $chan readable [list [self] ReadAPIResponse $chan $tmpfile]
             $send configure -state disabled
@@ -195,7 +191,6 @@ namespace eval ::llm_ui {
         }
 
         method ProcessResponse {response} {
-            # Very basic extraction of the first 'content' in choices
             if {[regexp {"content":\s*"((?:[^"\\]|\\.)*)"} $response -> content]} {
                 set content [my UnescapeJson $content]
                 my AddToHistory "assistant" $content
@@ -207,7 +202,24 @@ namespace eval ::llm_ui {
             }
         }
 
-        # Export methods for testing and external use
         export configure cget SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse
+    }
+
+    # Convenience procedure to create the widget
+    proc ChatWidget {path args} {
+        # Create the TclOO object.
+        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
+        
+        rename $path ::$path:widget
+        proc ::$path {cmd args} [format {
+            set obj ::%s:obj
+            if {[lsearch -exact [info object methods $obj] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            } else {
+                return [%s:widget $cmd {*}$args]
+            }
+        } $path $path]
+        
+        return $path
     }
 }

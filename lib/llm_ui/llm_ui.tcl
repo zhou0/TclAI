@@ -201,6 +201,8 @@ namespace eval ::llm_ui {
 
             grid rowconfigure $w 0 -weight 1
             grid columnconfigure $w 0 -weight 1
+
+            my AddToHistory "system" $options(-system_prompt)
         }
 
         method AddToHistory {role message} {
@@ -267,10 +269,11 @@ namespace eval ::llm_ui {
         method ReadAPIResponseHttp {token} {
             set status [http::status $token]
             set ncode [http::ncode $token]
-            set data [http::data $token]
+            set raw_data [http::data $token]
+            set data [encoding convertfrom utf-8 $raw_data]
 
             puts "DEBUG: API Response Status: $status, HTTP Code: $ncode"
-            puts "DEBUG: Raw API Response: $data"
+            puts "DEBUG: Raw API Response (UTF-8 Decoded): $data"
 
             if {$status eq "ok"} {
                 if {$ncode == 200} {
@@ -510,12 +513,14 @@ namespace eval ::llm_ui {
                 return
             }
 
-            set response ""
+            set raw_response ""
             if {[http::status $token] eq "ok"} {
-                set response [http::data $token]
+                set raw_response [http::data $token]
             }
+            set response [encoding convertfrom utf-8 $raw_response]
+
             puts "DEBUG: Model Fetch Response: [http::status $token], HTTP Code: [http::ncode $token]"
-            puts "DEBUG: Raw Model Response: $response"
+            puts "DEBUG: Raw Model Response (UTF-8 Decoded): $response"
             http::cleanup $token
 
             if {$response eq ""} {

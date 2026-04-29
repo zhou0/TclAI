@@ -36,7 +36,7 @@ jobs:
       - name: Run Tcltests
         run: |
           # 假设你的测试脚本名为 all.tcl
-          tclsh tests/all.tcl
+          tclsh llm_app.tcl
       - name: Run a multi-line script
         run: |
           echo Add other actions to build,

@@ -3,15 +3,14 @@ package provide llm_ui 0.1
 package require TclOO
 package require Tk
 package require http
+package require tls
 
 namespace eval ::llm_ui {
+    # Register HTTPS protocol
+    http::register https 443 [list ::tls::socket -autoservername 1]
+
     # Try to load json from tcllib
     catch {package require json}
-    # Try to load tls
-    set has_tls [expr {![catch {package require tls}]}]
-    if {$has_tls} {
-        http::register https 443 [list ::tls::socket -autoservername 1]
-    }
 
     proc parse_json {json} {
         if {[info commands ::json::json2dict] ne ""} {
@@ -36,7 +35,7 @@ namespace eval ::llm_ui {
         foreach {f m} [regexp -all -inline {"id":\s*"([^"]+)"} $json] {
             lappend ids $m
         }
-        return [list data [set ids_list {}]] ; # dummy to satisfy some logic
+        return [list data {}] ; # satisfaction dummy
     }
 
     proc dict_to_json {dict_data} {
@@ -199,36 +198,13 @@ namespace eval ::llm_ui {
             set payload [my BuildPayload]
             set url "$options(-base_url)/chat/completions"
             set key $options(-api_key)
-            set api_buffer ""
 
-            if {[info commands ::tls::socket] ne ""} {
-                set headers [list "Content-Type" "application/json"]
-                if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
-                if {[catch {http::geturl $url -query $payload -headers $headers -command [list [self] ReadAPIResponseHttp]} token]} {
-                    my AddToHistory "error" "HTTP Request Failed: $token"
-                    $send configure -state normal
-                    return
-                }
-            } else {
-                set tmpfile [file join [file dirname [info script]] "payload_[pid].json"]
-                set fh [open $tmpfile w]
-                puts -nonewline $fh $payload
-                close $fh
+            set headers [list "Content-Type" "application/json"]
+            if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
 
-                set cmd [list curl -s -i -X POST $url \
-                    -H "Content-Type: application/json"]
-                if {$key ne ""} { lappend cmd -H "Authorization: Bearer $key" }
-                lappend cmd -d @$tmpfile
-
-                if {[catch {open "|$cmd 2>&1" r} chan]} {
-                    my AddToHistory "error" "Failed to start curl: $chan"
-                    file delete -force $tmpfile
-                    $send configure -state normal
-                    return
-                }
-
-                fconfigure $chan -blocking 0
-                fileevent $chan readable [list [self] ReadAPIResponseCurl $chan $tmpfile]
+            if {[catch {http::geturl $url -query $payload -headers $headers -command [list [self] ReadAPIResponseHttp]} token]} {
+                my AddToHistory "error" "HTTP Request Failed: $token"
+                return
             }
             $send configure -state disabled
             my AddToHistory "system" "Assistant is thinking..."
@@ -238,6 +214,10 @@ namespace eval ::llm_ui {
             set status [http::status $token]
             set ncode [http::ncode $token]
             set data [http::data $token]
+
+            puts "DEBUG: API Response Status: $status, HTTP Code: $ncode"
+            puts "DEBUG: Raw API Response: $data"
+
             if {$status eq "ok"} {
                 if {$ncode == 200} {
                     my ProcessResponse $data
@@ -249,25 +229,6 @@ namespace eval ::llm_ui {
             }
             http::cleanup $token
             if {[winfo exists $send]} { $send configure -state normal }
-        }
-
-        method ReadAPIResponseCurl {chan tmpfile} {
-            set data [read $chan]
-            append api_buffer $data
-            if {[eof $chan]} {
-                catch {close $chan}
-                if {[file exists $tmpfile]} { file delete -force $tmpfile }
-
-                # Separate headers from body if -i was used
-                set pos [string first "\r\n\r\n" $api_buffer]
-                if {$pos != -1} {
-                    set body [string range $api_buffer [expr {$pos+4}] end]
-                    my ProcessResponse $body
-                } else {
-                    my ProcessResponse $api_buffer
-                }
-                if {[winfo exists $send]} { $send configure -state normal }
-            }
         }
 
         method ProcessResponse {response} {
@@ -283,11 +244,11 @@ namespace eval ::llm_ui {
             } elseif {[regexp {"error":\s*\{"message":\s*"([^"]*)"} $response -> err_msg]} {
                 my AddToHistory "error" "API Error: $err_msg"
             } else {
-                my AddToHistory "error" "Failed to parse API response. Raw response snippet: [string range $response 0 100]..."
+                my AddToHistory "error" "Failed to parse API response. Check console for raw response."
             }
         }
 
-        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse ReadAPIResponseHttp ReadAPIResponseCurl
+        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse ReadAPIResponseHttp
     }
 
     # Convenience procedure
@@ -357,11 +318,7 @@ namespace eval ::llm_ui {
         method FindProviderIdx {name} {
             set idx 0
             foreach p $providers_data {
-                set p_name ""
-                if {[catch {set p_name [dict get $p name]}]} {
-                     set n_idx [lsearch -exact $p name]
-                     if {$n_idx != -1} { set p_name [lindex $p [expr {$n_idx+1}]] }
-                }
+                set p_name [lindex $p [expr {[lsearch -exact $p name] + 1}]]
                 if {$p_name eq $name} { return $idx }
                 incr idx
             }
@@ -377,27 +334,22 @@ namespace eval ::llm_ui {
             ttk::label $config_frame.lp -text "Provider:"
             set p_names {}
             foreach p $providers_data {
-                set p_name ""
-                if {[catch {set p_name [dict get $p name]}]} {
-                     set n_idx [lsearch -exact $p name]
-                     if {$n_idx != -1} { set p_name [lindex $p [expr {$n_idx+1}]] }
-                }
-                lappend p_names $p_name
+                lappend p_names [lindex $p [expr {[lsearch -exact $p name] + 1}]]
             }
             set cb_p [ttk::combobox $config_frame.cbp -values $p_names -state readonly]
             grid $config_frame.lp -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_p -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $cb_p <<ComboboxSelected>> [list [self] OnProviderSelected %W]
+            bind $cb_p <<ComboboxSelected>> [list $w OnProviderSelected %W]
             incr row
 
             ttk::label $config_frame.lk -text "API Key:"
             set e_k [ttk::entry $config_frame.ek -show "*"]
             grid $config_frame.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $e_k <FocusOut> [list [self] ChangeKey]
+            bind $e_k <FocusOut> [list $w ChangeKey]
             incr row
 
-            ttk::button $config_frame.btn_key -text "Change API Key" -command [list [self] ChangeKey]
+            ttk::button $config_frame.btn_key -text "Change API Key" -command [list $w ChangeKey]
             grid $config_frame.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
@@ -405,10 +357,10 @@ namespace eval ::llm_ui {
             set cb_m [ttk::combobox $config_frame.cbm -state readonly]
             grid $config_frame.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
+            bind $cb_m <<ComboboxSelected>> [list $w OnModelSelected %W]
             incr row
 
-            ttk::button $config_frame.btn_refresh -text "Refresh Models" -command [list [self] RefreshModels]
+            ttk::button $config_frame.btn_refresh -text "Refresh Models" -command [list $w RefreshModels]
             grid $config_frame.btn_refresh -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
@@ -416,7 +368,7 @@ namespace eval ::llm_ui {
 
             if {[llength $p_names] > 0} {
                 $cb_p current 0
-                after idle [list [self] OnProviderSelected $cb_p]
+                after idle [list $w OnProviderSelected $cb_p]
             }
         }
 
@@ -424,19 +376,9 @@ namespace eval ::llm_ui {
             set idx [$w_cb current]
             if {$idx == -1} return
             set p [lindex $providers_data $idx]
-
-            set current_p_name ""
-            set url ""
-            set key ""
-
-            if {![catch {set current_p_name [dict get $p name]}]} {
-                set url [dict get $p base_url]
-                set key [dict get $p api_key]
-            } else {
-                set current_p_name [lindex $p [expr {[lsearch -exact $p name]+1}]]
-                set url [lindex $p [expr {[lsearch -exact $p base_url]+1}]]
-                set key [lindex $p [expr {[lsearch -exact $p api_key]+1}]]
-            }
+            set current_p_name [lindex $p [expr {[lsearch -exact $p name] + 1}]]
+            set url [lindex $p [expr {[lsearch -exact $p base_url] + 1}]]
+            set key [lindex $p [expr {[lsearch -exact $p api_key] + 1}]]
 
             $w.config.ek delete 0 end
             $w.config.ek insert 0 $key
@@ -451,11 +393,8 @@ namespace eval ::llm_ui {
             set idx [my FindProviderIdx $current_p_name]
             if {$idx != -1} {
                 set p [lindex $providers_data $idx]
-                if {![catch {dict set p api_key $key}]} {
-                } else {
-                    set k_idx [lsearch -exact $p api_key]
-                    set p [lreplace $p [expr {$k_idx+1}] [expr {$k_idx+1}] $key]
-                }
+                set k_idx [lsearch -exact $p api_key]
+                set p [lreplace $p [expr {$k_idx+1}] [expr {$k_idx+1}] $key]
                 set providers_data [lreplace $providers_data $idx $idx $p]
                 my SaveProviders
                 $chatW configure -api_key $key
@@ -467,15 +406,13 @@ namespace eval ::llm_ui {
             set idx [my FindProviderIdx $current_p_name]
             if {$idx != -1} {
                 set p [lindex $providers_data $idx]
-                set models {}
-                if {![catch {set models [dict get $p models]}]} {
-                } else {
-                    set m_idx [lsearch -exact $p models]
-                    if {$m_idx != -1} { set models [lindex $p [expr {$m_idx+1}]] }
-                }
-                if {[llength $models] > 0} {
-                    my UpdateModelList $models
-                    return
+                set m_idx [lsearch -exact $p models]
+                if {$m_idx != -1} {
+                    set models [lindex $p [expr {$m_idx+1}]]
+                    if {[llength $models] > 0} {
+                        my UpdateModelList $models
+                        return
+                    }
                 }
             }
             set base_url [$chatW cget -base_url]
@@ -486,20 +423,21 @@ namespace eval ::llm_ui {
             set url "$base_url/models"
             set key [$chatW cget -api_key]
 
-            set response ""
-            if {[info commands ::tls::socket] ne ""} {
-                set headers {}
-                if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
-                if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
-                } else {
-                    if {[http::status $token] eq "ok"} { set response [http::data $token] }
-                    http::cleanup $token
-                }
-            } else {
-                set cmd [list curl -s -X GET $url]
-                if {$key ne ""} { lappend cmd -H "Authorization: Bearer $key" }
-                if {[catch {exec {*}$cmd} res]} { set response "" } else { set response $res }
+            set headers {}
+            if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
+
+            if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
+                my UpdateModelList {"gpt-4o-mini" "gpt-4o"}
+                return
             }
+
+            set response ""
+            if {[http::status $token] eq "ok"} {
+                set response [http::data $token]
+            }
+            puts "DEBUG: Model Fetch Response: [http::status $token], HTTP Code: [http::ncode $token]"
+            puts "DEBUG: Raw Model Response: $response"
+            http::cleanup $token
 
             if {$response eq ""} {
                 my UpdateModelList {"gpt-4o-mini" "gpt-4o"}
@@ -512,10 +450,11 @@ namespace eval ::llm_ui {
             set idx [my FindProviderIdx $current_p_name]
             if {$idx != -1} {
                 set p [lindex $providers_data $idx]
-                if {![catch {dict set p models $models}]} {
+                set m_idx [lsearch -exact $p models]
+                if {$m_idx == -1} {
+                    lappend p models $models
                 } else {
-                    set m_idx [lsearch -exact $p models]
-                    if {$m_idx == -1} { lappend p models $models } else { set p [lreplace $p [expr {$m_idx+1}] [expr {$m_idx+1}] $models] }
+                    set p [lreplace $p [expr {$m_idx+1}] [expr {$m_idx+1}] $models]
                 }
                 set providers_data [lreplace $providers_data $idx $idx $p]
                 my SaveProviders

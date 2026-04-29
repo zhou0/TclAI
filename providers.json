@@ -2,15 +2,23 @@
   "providers": [
     {
       "name": "OpenAI",
-      "base_url": "https://api.openai.com/v1"
+      "base_url": "https://api.openai.com/v1",
+      "api_key": ""
+    },
+    {
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": ""
     },
     {
       "name": "Anthropic (Proxy)",
-      "base_url": "https://api.anthropic.com/v1"
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": ""
     },
     {
       "name": "Local (Ollama/LM Studio)",
-      "base_url": "http://localhost:11434/v1"
+      "base_url": "http://localhost:11434/v1",
+      "api_key": ""
     }
   ]
 }

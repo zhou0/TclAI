@@ -2,10 +2,16 @@ package provide llm_ui 0.1
 
 package require TclOO
 package require Tk
+package require http
 
 namespace eval ::llm_ui {
     # Try to load json from tcllib
     catch {package require json}
+    # Try to load tls
+    set has_tls [expr {![catch {package require tls}]}]
+    if {$has_tls} {
+        http::register https 443 [list ::tls::socket -autoservername 1]
+    }
 
     proc parse_json {json} {
         if {[info commands ::json::json2dict] ne ""} {
@@ -13,7 +19,6 @@ namespace eval ::llm_ui {
                 return $data
             }
         }
-        # Very limited fallback for providers.json and models list
         return [simple_json_parse $json]
     }
 
@@ -23,7 +28,6 @@ namespace eval ::llm_ui {
         set RB "\}"
         if {[string index $json 0] eq $LB} {
             set dict {}
-            # Match top-level keys
             set re_key_val "\"(\[^\"]+)\":\\s*(\[^,${RB}\]+|\\\[\[^\\\]\]+\\\]|${LB}\[^\n${RB}\]+${RB})"
             set matches [regexp -all -inline $re_key_val $json]
             foreach {full key val} $matches {
@@ -31,7 +35,6 @@ namespace eval ::llm_ui {
                 if {[string index $val 0] eq "\["} {
                     set list {}
                     set inner [string range $val 1 end-1]
-                    # Match objects in list
                     set re_obj "${LB}\[^${RB}\]+${RB}"
                     set omatches [regexp -all -inline $re_obj $inner]
                     foreach om $omatches {
@@ -47,6 +50,19 @@ namespace eval ::llm_ui {
             return $dict
         }
         return [string trim $json " \""]
+    }
+
+    proc dict_to_json {dict_data} {
+        set providers [dict get $dict_data providers]
+        set p_json_list {}
+        foreach p $providers {
+            set items {}
+            foreach {k v} $p {
+                lappend items "\"$k\": \"$v\""
+            }
+            lappend p_json_list "\{[join $items ", "]\}"
+        }
+        return "\{\"providers\": \[[join $p_json_list ", "]\]\}"
     }
 
     proc extract_ids {json key} {
@@ -192,36 +208,54 @@ namespace eval ::llm_ui {
             set key $options(-api_key)
             set api_buffer ""
 
-            set tmpfile [file join [file dirname [info script]] "payload_[pid].json"]
-            set fh [open $tmpfile w]
-            puts -nonewline $fh $payload
-            close $fh
+            if {[info commands ::tls::socket] ne ""} {
+                set headers [list "Content-Type" "application/json"]
+                if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
+                if {[catch {http::geturl $url -query $payload -headers $headers -command [list [self] ReadAPIResponseHttp]} token]} {
+                    my AddToHistory "error" "HTTP Error: $token"
+                    return
+                }
+            } else {
+                set tmpfile [file join [file dirname [info script]] "payload_[pid].json"]
+                set fh [open $tmpfile w]
+                puts -nonewline $fh $payload
+                close $fh
 
-            set cmd [list curl -s -X POST $url \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $key" \
-                -d @$tmpfile]
+                set cmd [list curl -s -X POST $url \
+                    -H "Content-Type: application/json" \
+                    -H "Authorization: Bearer $key" \
+                    -d @$tmpfile]
 
-            if {[catch {open "|$cmd" r} chan]} {
-                my AddToHistory "error" "Failed to start curl: $chan"
-                file delete -force $tmpfile
-                return
+                if {[catch {open "|$cmd" r} chan]} {
+                    my AddToHistory "error" "Failed to start curl: $chan"
+                    file delete -force $tmpfile
+                    return
+                }
+
+                fconfigure $chan -blocking 0
+                fileevent $chan readable [list [self] ReadAPIResponseCurl $chan $tmpfile]
             }
-            
-            fconfigure $chan -blocking 0
-            fileevent $chan readable [list [self] ReadAPIResponse $chan $tmpfile]
             $send configure -state disabled
             my AddToHistory "system" "Assistant is thinking..."
         }
 
-        method ReadAPIResponse {chan tmpfile} {
+        method ReadAPIResponseHttp {token} {
+            set status [http::status $token]
+            if {$status eq "ok"} {
+                my ProcessResponse [http::data $token]
+            } else {
+                my AddToHistory "error" "HTTP Error: $status"
+            }
+            http::cleanup $token
+            if {[winfo exists $send]} { $send configure -state normal }
+        }
+
+        method ReadAPIResponseCurl {chan tmpfile} {
             set data [read $chan]
             append api_buffer $data
             if {[eof $chan]} {
                 catch {close $chan}
-                if {[file exists $tmpfile]} {
-                    file delete -force $tmpfile
-                }
+                if {[file exists $tmpfile]} { file delete -force $tmpfile }
                 my ProcessResponse $api_buffer
                 if {[winfo exists $send]} { $send configure -state normal }
             }
@@ -260,13 +294,12 @@ namespace eval ::llm_ui {
 
     # Settings Widget Class
     oo::class create SettingsWidgetClass {
-        variable w chatW providers_data provider_keys current_p_name cb_p
+        variable w chatW providers_data current_p_name cb_p
 
         constructor {path chatWidget args} {
             set w [ttk::frame $path]
             set chatW $chatWidget
             set providers_data {}
-            set provider_keys {}
             set current_p_name ""
             my LoadProviders
             my CreateUI
@@ -284,10 +317,20 @@ namespace eval ::llm_ui {
                 }
             } else {
                 set providers_data {
-                    {name "OpenAI" base_url "https://api.openai.com/v1"}
-                    {name "Local" base_url "http://localhost:11434/v1"}
+                    {name "OpenAI" base_url "https://api.openai.com/v1" api_key ""}
+                    {name "OpenRouter" base_url "https://openrouter.ai/api/v1" api_key ""}
+                    {name "Local" base_url "http://localhost:11434/v1" api_key ""}
                 }
             }
+        }
+
+        method SaveProviders {} {
+            set filename "providers.json"
+            set data [list providers $providers_data]
+            set json [::llm_ui::dict_to_json $data]
+            set fh [open $filename w]
+            puts $fh $json
+            close $fh
         }
 
         method CreateUI {} {
@@ -309,7 +352,10 @@ namespace eval ::llm_ui {
             set e_k [ttk::entry $config_frame.ek -show "*"]
             grid $config_frame.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $e_k <FocusOut> [list $w SaveKeyAndRefresh %W]
+            incr row
+
+            ttk::button $config_frame.btn_key -text "Change API Key" -command [list $w ChangeKey]
+            grid $config_frame.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
             ttk::label $config_frame.lm -text "Model:"
@@ -337,11 +383,8 @@ namespace eval ::llm_ui {
             set p [lindex $providers_data $idx]
             set current_p_name [dict get $p name]
             set url [dict get $p base_url]
+            set key [dict get $p api_key]
 
-            set key ""
-            if {[dict exists $provider_keys $current_p_name]} {
-                set key [dict get $provider_keys $current_p_name]
-            }
             $w.config.ek delete 0 end
             $w.config.ek insert 0 $key
 
@@ -350,11 +393,25 @@ namespace eval ::llm_ui {
             my RefreshModels
         }
 
-        method SaveKeyAndRefresh {w_entry} {
-            set key [$w_entry get]
-            dict set provider_keys $current_p_name $key
-            $chatW configure -api_key $key
-            my RefreshModels
+        method ChangeKey {} {
+            set key [$w.config.ek get]
+            set idx -1
+            set count 0
+            foreach p $providers_data {
+                if {[dict get $p name] eq $current_p_name} {
+                    set idx $count
+                    break
+                }
+                incr count
+            }
+            if {$idx != -1} {
+                set p [lindex $providers_data $idx]
+                dict set p api_key $key
+                set providers_data [lreplace $providers_data $idx $idx $p]
+                my SaveProviders
+                $chatW configure -api_key $key
+                my RefreshModels
+            }
         }
 
         method RefreshModels {} {
@@ -366,21 +423,32 @@ namespace eval ::llm_ui {
             set url "$base_url/models"
             set key [$chatW cget -api_key]
 
-            set cmd [list curl -s -X GET $url]
-            if {$key ne ""} {
-                lappend cmd -H "Authorization: Bearer $key"
+            if {[info commands ::tls::socket] ne ""} {
+                set headers {}
+                if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
+                if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
+                    my UpdateModelList {"gpt-4o-mini" "gpt-4o"}
+                    return
+                }
+                if {[http::status $token] eq "ok"} {
+                    set response [http::data $token]
+                } else {
+                    set response ""
+                }
+                http::cleanup $token
+            } else {
+                set cmd [list curl -s -X GET $url]
+                if {$key ne ""} { lappend cmd -H "Authorization: Bearer $key" }
+                if {[catch {exec {*}$cmd} response]} { set response "" }
             }
 
-            if {[catch {exec {*}$cmd} response]} {
+            if {$response eq ""} {
                 my UpdateModelList {"gpt-4o-mini" "gpt-4o"}
                 return
             }
 
             set models [::llm_ui::extract_ids $response "id"]
-
-            if {[llength $models] == 0} {
-                set models {"gpt-4o-mini" "gpt-4o"}
-            }
+            if {[llength $models] == 0} { set models {"gpt-4o-mini" "gpt-4o"} }
             my UpdateModelList $models
         }
 
@@ -400,7 +468,7 @@ namespace eval ::llm_ui {
             $chatW configure -model $model
         }
 
-        export OnProviderSelected SaveKeyAndRefresh RefreshModels OnModelSelected
+        export OnProviderSelected ChangeKey RefreshModels OnModelSelected
     }
 
     # Convenience procedure

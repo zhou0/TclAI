@@ -19,22 +19,26 @@ namespace eval ::llm_ui {
 
     proc simple_json_parse {json} {
         set json [string trim $json]
-        if {[string index $json 0] eq "{"} {
+        set LB "\{"
+        set RB "\}"
+        if {[string index $json 0] eq $LB} {
             set dict {}
             # Match top-level keys
-            set matches [regexp -all -inline {"([^"]+)":\s*([^,}]+|\[[^\]]+\]|\{[^\}]+\})} $json]
+            set re_key_val "\"(\[^\"]+)\":\\s*(\[^,${RB}\]+|\\\[\[^\\\]\]+\\\]|${LB}\[^\n${RB}\]+${RB})"
+            set matches [regexp -all -inline $re_key_val $json]
             foreach {full key val} $matches {
                 set val [string trim $val]
                 if {[string index $val 0] eq "\["} {
                     set list {}
                     set inner [string range $val 1 end-1]
                     # Match objects in list
-                    set omatches [regexp -all -inline {\{[^\}]+\}} $inner]
+                    set re_obj "${LB}\[^${RB}\]+${RB}"
+                    set omatches [regexp -all -inline $re_obj $inner]
                     foreach om $omatches {
                         lappend list [simple_json_parse $om]
                     }
                     lappend dict $key $list
-                } elseif {[string index $val 0] eq "{"} {
+                } elseif {[string index $val 0] eq $LB} {
                     lappend dict $key [simple_json_parse $val]
                 } else {
                     lappend dict $key [string trim $val " \""]
@@ -47,7 +51,7 @@ namespace eval ::llm_ui {
 
     proc extract_ids {json key} {
         set ids {}
-        set pattern [format {"%s":\s*"([^"]+)"} $key]
+        set pattern "\"$key\":\\s*\"(\[^\"]+)\""
         set matches [regexp -all -inline $pattern $json]
         foreach {full match} $matches {
             lappend ids $match

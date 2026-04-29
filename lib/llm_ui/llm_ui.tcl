@@ -35,7 +35,7 @@ namespace eval ::llm_ui {
         foreach {f m} [regexp -all -inline {"id":\s*"([^"]+)"} $json] {
             lappend ids $m
         }
-        return [list data {}] ; # satisfaction dummy
+        return [list data {}]
     }
 
     proc dict_to_json {dict_data} {
@@ -141,8 +141,6 @@ namespace eval ::llm_ui {
 
             grid rowconfigure $w 0 -weight 1
             grid columnconfigure $w 0 -weight 1
-            
-            my AddToHistory "system" $options(-system_prompt)
         }
 
         method AddToHistory {role message} {
@@ -159,7 +157,6 @@ namespace eval ::llm_ui {
             $history configure -state normal
             $history delete 1.0 end
             $history configure -state disabled
-            my AddToHistory "system" $options(-system_prompt)
         }
 
         method SendMessage {} {
@@ -269,7 +266,7 @@ namespace eval ::llm_ui {
 
     # Settings Widget Class
     oo::class create SettingsWidgetClass {
-        variable w chatW providers_data current_p_name cb_p
+        variable w chatW providers_data current_p_name cb_p sys_p_text
 
         constructor {path chatWidget args} {
             set w [ttk::frame $path]
@@ -327,7 +324,7 @@ namespace eval ::llm_ui {
 
         method CreateUI {} {
             set config_frame [ttk::labelframe $w.config -text "LLM Configuration"]
-            pack $config_frame -fill x -padx 10 -pady 10 -ipadx 5 -ipady 5
+            pack $config_frame -fill both -expand yes -padx 10 -pady 10 -ipadx 5 -ipady 5
 
             set row 0
 
@@ -364,7 +361,27 @@ namespace eval ::llm_ui {
             grid $config_frame.btn_refresh -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
+            # System Prompt Editor
+            ttk::label $config_frame.lsp -text "System Prompt:"
+            grid $config_frame.lsp -row $row -column 0 -sticky ne -padx 5 -pady 5
+
+            set sys_p_frame [ttk::frame $config_frame.spf]
+            grid $sys_p_frame -row $row -column 1 -sticky nsew -padx 5 -pady 5
+            set sys_p_text [text $sys_p_frame.txt -height 5 -wrap word]
+            set sys_p_vsb [ttk::scrollbar $sys_p_frame.vsb -orient vertical -command [list $sys_p_text yview]]
+            $sys_p_text configure -yscrollcommand [list $sys_p_vsb set]
+            pack $sys_p_vsb -side right -fill y
+            pack $sys_p_text -side left -fill both -expand yes
+
+            $sys_p_text insert 1.0 [$chatW cget -system_prompt]
+            incr row
+
+            ttk::button $config_frame.btn_sysp -text "Save System Prompt" -command [list $w SaveSystemPrompt]
+            grid $config_frame.btn_sysp -row $row -column 1 -sticky e -padx 5 -pady 5
+            incr row
+
             grid columnconfigure $config_frame 1 -weight 1
+            grid rowconfigure $config_frame [expr {$row - 2}] -weight 1
 
             if {[llength $p_names] > 0} {
                 $cb_p current 0
@@ -400,6 +417,11 @@ namespace eval ::llm_ui {
                 $chatW configure -api_key $key
                 my RefreshModels
             }
+        }
+
+        method SaveSystemPrompt {} {
+            set prompt [string trim [$sys_p_text get 1.0 end]]
+            $chatW configure -system_prompt $prompt
         }
 
         method RefreshModels {} {
@@ -479,7 +501,7 @@ namespace eval ::llm_ui {
             $chatW configure -model $model
         }
 
-        export OnProviderSelected ChangeKey RefreshModels OnModelSelected
+        export OnProviderSelected ChangeKey SaveSystemPrompt RefreshModels OnModelSelected
     }
 
     # Convenience procedure

@@ -24,11 +24,6 @@ namespace eval ::llm_ui {
         set matches [regexp -all -inline {\{"name":\s*"([^"]+)",\s*"base_url":\s*"([^"]+)",\s*"api_key":\s*"([^"]*)",\s*"models":\s*\[([^\]]*)\]\}} $json]
         foreach {full name url key models_str} $matches {
             set m_list {}
-            foreach m [regexp -all -inline {"([^"]+)"} $models_str] {
-                if {[string index $m 0] ne "\""} { lappend m_list $m }
-            }
-            # regexp -all -inline returns {full match1 full match2 ...} so the above was slightly wrong
-            set m_list {}
             foreach {f m} [regexp -all -inline {"([^"]+)"} $models_str] {
                 lappend m_list $m
             }
@@ -210,7 +205,8 @@ namespace eval ::llm_ui {
                 set headers [list "Content-Type" "application/json"]
                 if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
                 if {[catch {http::geturl $url -query $payload -headers $headers -command [list [self] ReadAPIResponseHttp]} token]} {
-                    my AddToHistory "error" "HTTP Error: $token"
+                    my AddToHistory "error" "HTTP Request Failed: $token"
+                    $send configure -state normal
                     return
                 }
             } else {
@@ -219,14 +215,15 @@ namespace eval ::llm_ui {
                 puts -nonewline $fh $payload
                 close $fh
 
-                set cmd [list curl -s -X POST $url \
+                set cmd [list curl -s -i -X POST $url \
                     -H "Content-Type: application/json"]
                 if {$key ne ""} { lappend cmd -H "Authorization: Bearer $key" }
                 lappend cmd -d @$tmpfile
 
-                if {[catch {open "|$cmd" r} chan]} {
+                if {[catch {open "|$cmd 2>&1" r} chan]} {
                     my AddToHistory "error" "Failed to start curl: $chan"
                     file delete -force $tmpfile
+                    $send configure -state normal
                     return
                 }
 
@@ -239,8 +236,14 @@ namespace eval ::llm_ui {
 
         method ReadAPIResponseHttp {token} {
             set status [http::status $token]
+            set ncode [http::ncode $token]
+            set data [http::data $token]
             if {$status eq "ok"} {
-                my ProcessResponse [http::data $token]
+                if {$ncode == 200} {
+                    my ProcessResponse $data
+                } else {
+                    my AddToHistory "error" "API Error (HTTP $ncode): $data"
+                }
             } else {
                 my AddToHistory "error" "HTTP Error: $status"
             }
@@ -254,12 +257,25 @@ namespace eval ::llm_ui {
             if {[eof $chan]} {
                 catch {close $chan}
                 if {[file exists $tmpfile]} { file delete -force $tmpfile }
-                my ProcessResponse $api_buffer
+
+                # Separate headers from body if -i was used
+                set pos [string first "\r\n\r\n" $api_buffer]
+                if {$pos != -1} {
+                    set body [string range $api_buffer [expr {$pos+4}] end]
+                    my ProcessResponse $body
+                } else {
+                    my ProcessResponse $api_buffer
+                }
                 if {[winfo exists $send]} { $send configure -state normal }
             }
         }
 
         method ProcessResponse {response} {
+            set response [string trim $response]
+            if {$response eq ""} {
+                my AddToHistory "error" "Received empty response from API."
+                return
+            }
             if {[regexp {"content":\s*"((?:[^"\\]|\\.)*)"} $response -> content]} {
                 set content [my UnescapeJson $content]
                 my AddToHistory "assistant" $content
@@ -267,7 +283,7 @@ namespace eval ::llm_ui {
             } elseif {[regexp {"error":\s*\{"message":\s*"([^"]*)"} $response -> err_msg]} {
                 my AddToHistory "error" "API Error: $err_msg"
             } else {
-                my AddToHistory "error" "Failed to parse API response. Raw response: $response"
+                my AddToHistory "error" "Failed to parse API response. Raw response snippet: [string range $response 0 100]..."
             }
         }
 
@@ -343,7 +359,6 @@ namespace eval ::llm_ui {
             foreach p $providers_data {
                 set p_name ""
                 if {[catch {set p_name [dict get $p name]}]} {
-                     # fallback for simple list
                      set n_idx [lsearch -exact $p name]
                      if {$n_idx != -1} { set p_name [lindex $p [expr {$n_idx+1}]] }
                 }
@@ -372,17 +387,17 @@ namespace eval ::llm_ui {
             set cb_p [ttk::combobox $config_frame.cbp -values $p_names -state readonly]
             grid $config_frame.lp -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_p -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $cb_p <<ComboboxSelected>> [list $w OnProviderSelected %W]
+            bind $cb_p <<ComboboxSelected>> [list [self] OnProviderSelected %W]
             incr row
 
             ttk::label $config_frame.lk -text "API Key:"
             set e_k [ttk::entry $config_frame.ek -show "*"]
             grid $config_frame.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $e_k <FocusOut> [list $w ChangeKey]
+            bind $e_k <FocusOut> [list [self] ChangeKey]
             incr row
 
-            ttk::button $config_frame.btn_key -text "Change API Key" -command [list $w ChangeKey]
+            ttk::button $config_frame.btn_key -text "Change API Key" -command [list [self] ChangeKey]
             grid $config_frame.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
@@ -390,10 +405,10 @@ namespace eval ::llm_ui {
             set cb_m [ttk::combobox $config_frame.cbm -state readonly]
             grid $config_frame.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $cb_m <<ComboboxSelected>> [list $w OnModelSelected %W]
+            bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
             incr row
 
-            ttk::button $config_frame.btn_refresh -text "Refresh Models" -command [list $w RefreshModels]
+            ttk::button $config_frame.btn_refresh -text "Refresh Models" -command [list [self] RefreshModels]
             grid $config_frame.btn_refresh -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
 
@@ -401,7 +416,7 @@ namespace eval ::llm_ui {
 
             if {[llength $p_names] > 0} {
                 $cb_p current 0
-                after idle [list $w OnProviderSelected $cb_p]
+                after idle [list [self] OnProviderSelected $cb_p]
             }
         }
 
@@ -471,23 +486,19 @@ namespace eval ::llm_ui {
             set url "$base_url/models"
             set key [$chatW cget -api_key]
 
+            set response ""
             if {[info commands ::tls::socket] ne ""} {
                 set headers {}
                 if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
                 if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
-                    my UpdateModelList {"gpt-4o-mini" "gpt-4o"}
-                    return
-                }
-                if {[http::status $token] eq "ok"} {
-                    set response [http::data $token]
                 } else {
-                    set response ""
+                    if {[http::status $token] eq "ok"} { set response [http::data $token] }
+                    http::cleanup $token
                 }
-                http::cleanup $token
             } else {
                 set cmd [list curl -s -X GET $url]
                 if {$key ne ""} { lappend cmd -H "Authorization: Bearer $key" }
-                if {[catch {exec {*}$cmd} response]} { set response "" }
+                if {[catch {exec {*}$cmd} res]} { set response "" } else { set response $res }
             }
 
             if {$response eq ""} {

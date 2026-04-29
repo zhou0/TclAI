@@ -6,7 +6,7 @@ package require Tk
 namespace eval ::llm_ui {
     # Internal class
     oo::class create ChatWidgetClass {
-        variable w history input send config_frame
+        variable w history input send
         variable options
         variable messages
         variable api_buffer
@@ -38,29 +38,14 @@ namespace eval ::llm_ui {
             return $options($opt)
         }
 
+        method get_option_varname {opt} {
+            return [my varname options($opt)]
+        }
+
         method CreateUI {} {
-            # Configuration Frame
-            set config_frame [ttk::labelframe $w.config -text "LLM Configuration"]
-            grid $config_frame -row 0 -column 0 -sticky ew -padx 5 -pady 5
-
-            set row 0
-            foreach {label opt} {
-                "Provider:" -provider
-                "Model:" -model
-                "Base URL:" -base_url
-                "API Key:" -api_key
-            } {
-                ttk::label $config_frame.l$row -text $label
-                ttk::entry $config_frame.e$row -textvariable [my varname options($opt)]
-                grid $config_frame.l$row -row $row -column 0 -sticky e -padx 2 -pady 2
-                grid $config_frame.e$row -row $row -column 1 -sticky ew -padx 2 -pady 2
-                incr row
-            }
-            grid columnconfigure $config_frame 1 -weight 1
-
             # History Area
             set history_frame [ttk::frame $w.hframe]
-            grid $history_frame -row 1 -column 0 -sticky nsew -padx 5 -pady 5
+            grid $history_frame -row 0 -column 0 -sticky nsew -padx 5 -pady 5
             
             set history [text $history_frame.txt -wrap word -state disabled -height 15]
             set hscroll [ttk::scrollbar $history_frame.vsb -orient vertical -command [list $history yview]]
@@ -77,7 +62,7 @@ namespace eval ::llm_ui {
 
             # Input Area
             set input_frame [ttk::frame $w.iframe]
-            grid $input_frame -row 2 -column 0 -sticky ew -padx 5 -pady 5
+            grid $input_frame -row 1 -column 0 -sticky ew -padx 5 -pady 5
             
             set input [text $input_frame.txt -wrap word -height 4]
             set iscroll [ttk::scrollbar $input_frame.vsb -orient vertical -command [list $input yview]]
@@ -88,14 +73,14 @@ namespace eval ::llm_ui {
 
             # Buttons
             set btn_frame [ttk::frame $w.bframe]
-            grid $btn_frame -row 3 -column 0 -sticky ew -padx 5 -pady 5
+            grid $btn_frame -row 2 -column 0 -sticky ew -padx 5 -pady 5
             
             set send [ttk::button $btn_frame.send -text "Send" -command [list [self] SendMessage]]
             set clear [ttk::button $btn_frame.clear -text "Clear Chat" -command [list [self] ClearChat]]
             pack $send -side right -padx 5
             pack $clear -side left -padx 5
 
-            grid rowconfigure $w 1 -weight 1
+            grid rowconfigure $w 0 -weight 1
             grid columnconfigure $w 0 -weight 1
             
             my AddToHistory "system" $options(-system_prompt)
@@ -202,14 +187,12 @@ namespace eval ::llm_ui {
             }
         }
 
-        export configure cget SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse
+        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse
     }
 
-    # Convenience procedure to create the widget
+    # Convenience procedure to create the ChatWidget
     proc ChatWidget {path args} {
-        # Create the TclOO object.
         set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
-        
         rename $path ::$path:widget
         proc ::$path {cmd args} [format {
             set obj ::%s:obj
@@ -219,7 +202,52 @@ namespace eval ::llm_ui {
                 return [%s:widget $cmd {*}$args]
             }
         } $path $path]
-        
+        return $path
+    }
+
+    # Settings Widget Class
+    oo::class create SettingsWidgetClass {
+        variable w chatW
+
+        constructor {path chatWidget args} {
+            set w [ttk::frame $path]
+            set chatW $chatWidget
+            my CreateUI
+        }
+
+        method CreateUI {} {
+            set config_frame [ttk::labelframe $w.config -text "LLM Configuration"]
+            pack $config_frame -fill x -padx 10 -pady 10 -ipadx 5 -ipady 5
+
+            set row 0
+            foreach {label opt} {
+                "Provider:" -provider
+                "Model:" -model
+                "Base URL:" -base_url
+                "API Key:" -api_key
+            } {
+                ttk::label $config_frame.l$row -text $label
+                ttk::entry $config_frame.e$row -textvariable [$chatW get_option_varname $opt]
+                grid $config_frame.l$row -row $row -column 0 -sticky e -padx 5 -pady 5
+                grid $config_frame.e$row -row $row -column 1 -sticky ew -padx 5 -pady 5
+                incr row
+            }
+            grid columnconfigure $config_frame 1 -weight 1
+        }
+    }
+
+    # Convenience procedure to create the SettingsWidget
+    proc SettingsWidget {path chatWidget args} {
+        set obj [SettingsWidgetClass create ::$path:obj $path $chatWidget {*}$args]
+        rename $path ::$path:widget
+        proc ::$path {cmd args} [format {
+            set obj ::%s:obj
+            if {[lsearch -exact [info object methods $obj] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            } else {
+                return [%s:widget $cmd {*}$args]
+            }
+        } $path $path]
         return $path
     }
 }

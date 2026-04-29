@@ -196,10 +196,10 @@ namespace eval ::llm_ui {
         rename $path ::$path:widget
         proc ::$path {cmd args} [format {
             set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj] $cmd] != -1} {
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
                 return [$obj $cmd {*}$args]
             } else {
-                return [%s:widget $cmd {*}$args]
+                return [::%s:widget $cmd {*}$args]
             }
         } $path $path]
         return $path
@@ -242,10 +242,10 @@ namespace eval ::llm_ui {
         rename $path ::$path:widget
         proc ::$path {cmd args} [format {
             set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj] $cmd] != -1} {
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
                 return [$obj $cmd {*}$args]
             } else {
-                return [%s:widget $cmd {*}$args]
+                return [::%s:widget $cmd {*}$args]
             }
         } $path $path]
         return $path

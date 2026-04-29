@@ -18,43 +18,103 @@ namespace eval ::llm_ui {
                 return $data
             }
         }
-        # Fallback for providers.json
-        set providers {}
-        set matches [regexp -all -inline {\{"name":\s*"([^"]+)",\s*"base_url":\s*"([^"]+)",\s*"api_key":\s*"([^"]*)",\s*"models":\s*\[([^\]]*)\]\}} $json]
-        foreach {full name url key models_str} $matches {
-            set m_list {}
-            foreach {f m} [regexp -all -inline {"([^"]+)"} $models_str] {
-                lappend m_list $m
-            }
-            lappend providers [list name $name base_url $url api_key $key models $m_list]
-        }
-        if {[llength $providers] > 0} { return [list providers $providers] }
+        return [simple_json_parse $json]
+    }
 
-        # Fallback for models list
-        set ids {}
-        foreach {f m} [regexp -all -inline {"id":\s*"([^"]+)"} $json] {
-            lappend ids $m
+    # A more careful parser that respects quotes
+    proc simple_json_parse {json} {
+        set json [string trim $json]
+        if {[string index $json 0] eq "\{" || [string index $json 0] eq "\["} {
+            set result {}
+            set i 0
+            set len [string length $json]
+            # Skip outer brace
+            incr i
+            while {$i < $len - 1} {
+                set char [string index $json $i]
+                if {[string is space $char] || $char eq "," || $char eq ":"} {
+                    incr i
+                    continue
+                }
+                if {$char eq "\""} {
+                    # String
+                    set start [expr {$i + 1}]
+                    set end [string first "\"" $json $start]
+                    while {$end != -1 && [string index $json [expr {$end - 1}]] eq "\\"} {
+                        set end [string first "\"" $json [expr {$end + 1}]]
+                    }
+                    lappend result [unescape_json [string range $json $start [expr {$end - 1}]]]
+                    set i [expr {$end + 1}]
+                } elseif {$char eq "\{" || $char eq "\["} {
+                    # Nested structure
+                    set start $i
+                    set depth 1
+                    set open $char
+                    set close [expr {$char eq "\{" ? "\}" : "\]"}]
+                    incr i
+                    while {$depth > 0 && $i < $len} {
+                        set c [string index $json $i]
+                        if {$c eq "\""} {
+                             set s [expr {$i + 1}]
+                             set e [string first "\"" $json $s]
+                             while {$e != -1 && [string index $json [expr {$e - 1}]] eq "\\"} {
+                                 set e [string first "\"" $json [expr {$e + 1}]]
+                             }
+                             set i [expr {$e + 1}]
+                        } else {
+                            if {$c eq $open} { incr depth } elseif {$c eq $close} { incr depth -1 }
+                            incr i
+                        }
+                    }
+                    lappend result [simple_json_parse [string range $json $start [expr {$i - 1}]]]
+                } else {
+                    # Number or boolean
+                    if {[regexp -start $i -- {[^,\]\} ]+} $json match]} {
+                        lappend result $match
+                        set i [expr {$i + [string length $match]}]
+                    } else {
+                        incr i
+                    }
+                }
+            }
+            return $result
         }
-        return [list data {}]
+        return $json
     }
 
     proc dict_to_json {dict_data} {
-        set providers [dict get $dict_data providers]
-        set p_json_list {}
-        foreach p $providers {
-            set items {}
-            foreach {k v} $p {
-                if {$k eq "models"} {
-                    set m_list {}
-                    foreach m $v { lappend m_list "\"$m\"" }
-                    lappend items "\"models\": \[[join $m_list ", "]\]"
-                } else {
-                    lappend items "\"$k\": \"$v\""
+        if {[llength $dict_data] % 2 != 0} { return "\"$dict_data\"" }
+        set items {}
+        foreach {k v} $dict_data {
+            if {$k eq "providers"} {
+                set p_json_list {}
+                foreach p $v {
+                    set p_items {}
+                    foreach {pk pv} $p {
+                        if {$pk eq "models"} {
+                             set m_list {}
+                             foreach m $pv { lappend m_list "\"$m\"" }
+                             lappend p_items "\"models\": \[[join $m_list ", "]\]"
+                        } else {
+                             lappend p_items "\"$pk\": \"[escape_json $pv]\""
+                        }
+                    }
+                    lappend p_json_list "\{[join $p_items ", "]\}"
                 }
+                lappend items "\"providers\": \[[join $p_json_list ", "]\]"
+            } else {
+                lappend items "\"$k\": \"[escape_json $v]\""
             }
-            lappend p_json_list "\{[join $items ", "]\}"
         }
-        return "\{\"providers\": \[[join $p_json_list ", "]\]\}"
+        return "\{[join $items ", "]\}"
+    }
+
+    proc escape_json {str} {
+        return [string map {\\ \\\\ \" \\\" \n \\n \r \\r \t \\t} $str]
+    }
+
+    proc unescape_json {str} {
+        return [string map {\\\" \" \\\\ \\ \\n \n \\r \r \\t \t} $str]
     }
 
     proc extract_ids {json key} {
@@ -173,22 +233,14 @@ namespace eval ::llm_ui {
 
         method BuildPayload {} {
             set mlist {}
-            lappend mlist [format {{"role": "system", "content": "%s"}} [my EscapeJson $options(-system_prompt)]]
+            lappend mlist [format {{"role": "system", "content": "%s"}} [::llm_ui::escape_json $options(-system_prompt)]]
             foreach msg $messages {
                 set r [dict get $msg role]
                 set c [dict get $msg content]
-                lappend mlist [format {{"role": "%s", "content": "%s"}} $r [my EscapeJson $c]]
+                lappend mlist [format {{"role": "%s", "content": "%s"}} $r [::llm_ui::escape_json $c]]
             }
             set body [format {{"model": "%s", "messages": [%s]}} $options(-model) [join $mlist ","]]
             return $body
-        }
-
-        method EscapeJson {str} {
-            return [string map {\" \\\" \\ \\\\ \n \\n \r \\r \t \\t} $str]
-        }
-
-        method UnescapeJson {str} {
-            return [string map {\\\" \" \\\\ \\ \\n \n \\r \r \\t \t} $str]
         }
 
         method CallAPI {} {
@@ -196,10 +248,15 @@ namespace eval ::llm_ui {
             set url "$options(-base_url)/chat/completions"
             set key $options(-api_key)
 
-            set headers [list "Content-Type" "application/json"]
+            set headers {}
             if {$key ne ""} { lappend headers "Authorization" "Bearer $key" }
 
-            if {[catch {http::geturl $url -query $payload -headers $headers -command [list [self] ReadAPIResponseHttp]} token]} {
+            puts "DEBUG: Outgoing Payload: $payload"
+
+            if {[catch {http::geturl $url -query [encoding convertto utf-8 $payload] \
+                                     -type "application/json" \
+                                     -headers $headers \
+                                     -command [list [self] ReadAPIResponseHttp]} token]} {
                 my AddToHistory "error" "HTTP Request Failed: $token"
                 return
             }
@@ -235,7 +292,7 @@ namespace eval ::llm_ui {
                 return
             }
             if {[regexp {"content":\s*"((?:[^"\\]|\\.)*)"} $response -> content]} {
-                set content [my UnescapeJson $content]
+                set content [::llm_ui::unescape_json $content]
                 my AddToHistory "assistant" $content
                 lappend messages [list role "assistant" content $content]
             } elseif {[regexp {"error":\s*\{"message":\s*"([^"]*)"} $response -> err_msg]} {
@@ -245,7 +302,7 @@ namespace eval ::llm_ui {
             }
         }
 
-        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse ReadAPIResponseHttp
+        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload ProcessResponse ReadAPIResponseHttp
     }
 
     # Convenience procedure

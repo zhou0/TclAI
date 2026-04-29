@@ -273,7 +273,7 @@ namespace eval ::llm_ui {
             }
         }
 
-        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse
+        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload EscapeJson UnescapeJson ProcessResponse ReadAPIResponseHttp ReadAPIResponseCurl
     }
 
     # Convenience procedure

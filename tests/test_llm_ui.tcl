@@ -55,36 +55,9 @@ proc assert {condition msg} {
     }
 }
 
-puts "--- Starting Test Suite ---"
+puts "--- Starting UI Test Suite ---"
 
-# 1. Test JSON Parser
-puts "Testing JSON Parser..."
-set json {{"a": 1, "b": [2, "3"], "c": {"d": true, "e": null}}}
-set d [::llm_ui::logic::json_parse $json]
-assert {[dict get $d a] == 1} "json_parse simple value"
-assert {[lindex [dict get $d b] 1] eq "3"} "json_parse array"
-assert {[dict get [dict get $d c] d] == 1} "json_parse nested object"
-puts "JSON Parser: OK"
-
-# 2. Test JSON Generator (History)
-puts "Testing History JSON Generator..."
-set msgs { {role user content "hello"} {role assistant content "hi world"} }
-set gen [::llm_ui::logic::json_gen_history $msgs]
-assert {[string match {*role*: *user*} $gen]} "json_gen_history contains role"
-assert {[string match {*content*: *hi world*} $gen]} "json_gen_history contains content"
-puts "History JSON Generator: OK"
-
-# 3. Test Provider JSON Generator
-puts "Testing Provider JSON Generator..."
-set providers {
-    {name "P1" base_url "U1" api_key "K1" models {{id "M1" system_prompt "S1"}}}
-}
-set gen [::llm_ui::logic::json_gen_providers $providers "Default"]
-assert {[string match {*default_prompt*: *Default*} $gen]} "json_gen_providers contains default prompt"
-assert {[string match {*name*: *P1*} $gen]} "json_gen_providers contains provider name"
-puts "Provider JSON Generator: OK"
-
-# 4. Test ChatWidget Logic (Headless)
+# 1. Test ChatWidget Logic (Headless)
 puts "Testing ChatWidget Logic..."
 set chatW [::llm_ui::ChatWidget .test_chat]
 set obj ::.test_chat:obj
@@ -93,10 +66,10 @@ $obj configure -model "test-model"
 assert {[$obj cget -model] eq "test-model"} "configure/cget works"
 puts "ChatWidget: OK"
 
-# 5. Test SettingsWidget Logic (Headless)
+# 2. Test SettingsWidget Logic (Headless)
 puts "Testing SettingsWidget Logic..."
 set settingsW [::llm_ui::SettingsWidget .test_settings .test_chat]
 set s_obj ::.test_settings:obj
 puts "SettingsWidget: OK"
 
-puts "--- All Tests Passed ---"
+puts "--- UI Tests Passed ---"

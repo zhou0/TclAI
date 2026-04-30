@@ -254,7 +254,7 @@ namespace eval ::llm_ui {
             ttk::button $f.btn_key -text [::llm_ui::logic::mc "Change API Key"] -command [list [self] ChangeKey]
             grid $f.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
-            ttk::label $f.lm -text [::msgcat::mc "Model"]
+            ttk::label $f.lm -text [::llm_ui::logic::mc "Model"]
             set cb_m [ttk::combobox $f.cbm -state readonly]
             grid $f.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
@@ -293,7 +293,7 @@ namespace eval ::llm_ui {
             $f.lp configure -text [::llm_ui::logic::mc "Provider"]
             $f.lk configure -text [::llm_ui::logic::mc "API Key"]
             $f.btn_key configure -text [::llm_ui::logic::mc "Change API Key"]
-            $f.lm configure -text [::msgcat::mc "Model"]
+            $f.lm configure -text [::llm_ui::logic::mc "Model"]
             $f.btn_refresh configure -text [::llm_ui::logic::mc "Refresh Models"]
             $f.ldp configure -text [::llm_ui::logic::mc "Default Prompt"]
             $f.lsp configure -text [::llm_ui::logic::mc "System Prompt"]
@@ -441,6 +441,19 @@ namespace eval ::llm_ui {
             $chatW configure -system_prompt $prompt
         }
         export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SavePrompts UpdateTranslations
+    }
+
+    proc ChatWidget {path args} {
+        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
+        rename $path ::$path:widget
+        proc ::$path {cmd args} [format {
+            set obj ::%s:obj
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            }
+            return [::%s:widget $cmd {*}$args]
+        } $path $path]
+        return $path
     }
 
     proc SettingsWidget {path chatWidget args} {

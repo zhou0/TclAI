@@ -140,7 +140,7 @@ namespace eval ::llm_ui {
 
     proc extract_ids {json key} {
         set ids {}
-        set pattern "\"$key\":\\s*\"(\[^\"]+)\""
+        set pattern "\"$key\":\\s*\"(\x5b^\x22\x5d+)\""
         set matches [regexp -all -inline $pattern $json]
         foreach {full match} $matches { lappend ids $match }
         return [lsort -unique $ids]

@@ -6,7 +6,6 @@ package require llm_ui
 package require ttk::m3::navrail
 package require msgcat
 
-# Load preferences
 set locale en
 if {[file exists "preference.json"]} {
     set fh [open "preference.json" r]
@@ -19,18 +18,15 @@ if {[file exists "preference.json"]} {
 wm title . "TTK LLM Frontend"
 wm geometry . 800x600
 
-# Create Navigation Rail
 ttk::m3::navrail .nav
 .nav add_item toggle "☰" ""
 .nav add_item chat "💬" [::msgcat::mc "Chat"]
 .nav add_item settings "⚙️" [::msgcat::mc "Settings"]
 
-# Main container for screens
 ttk::frame .main
 pack .nav -side left -fill y
 pack .main -side right -fill both -expand yes
 
-# Screens
 ::llm_ui::ChatWidget .main.chat
 ::llm_ui::SettingsWidget .main.settings .main.chat
 

@@ -25,18 +25,18 @@ namespace eval ::llm_ui {
     proc json_parse {json} {
         set json [string trim $json]
         set i 0
-        return [json_parse_val $json i]
+        return [::llm_ui::json_parse_val $json i]
     }
 
     proc json_parse_val {json i_var} {
         upvar 1 $i_var i
-        json_skip_space $json i
+        ::llm_ui::json_skip_space $json i
         if {$i >= [string length $json]} { return "" }
         set char [string index $json $i]
-        if {$char eq "\x7b"} { return [json_parse_obj $json i] }
-        if {$char eq "\x5b"} { return [json_parse_arr $json i] }
-        if {$char eq "\""} { return [json_parse_str $json i] }
-        return [json_parse_lit $json i]
+        if {$char eq "\x7b"} { return [::llm_ui::json_parse_obj $json i] }
+        if {$char eq "\x5b"} { return [::llm_ui::json_parse_arr $json i] }
+        if {$char eq "\""} { return [::llm_ui::json_parse_str $json i] }
+        return [::llm_ui::json_parse_lit $json i]
     }
 
     proc json_skip_space {json i_var} {
@@ -49,20 +49,20 @@ namespace eval ::llm_ui {
         set result {}
         incr i
         while {$i < [string length $json]} {
-            json_skip_space $json i
+            ::llm_ui::json_skip_space $json i
             if {$i >= [string length $json]} break
             set c [string index $json $i]
             if {$c eq "\x7d"} { incr i; return $result }
             if {$c eq "\""} {
-                set key [json_parse_str $json i]
-                json_skip_space $json i
+                set key [::llm_ui::json_parse_str $json i]
+                ::llm_ui::json_skip_space $json i
                 if {$i < [string length $json] && [string index $json $i] eq ":"} { incr i }
-                set val [json_parse_val $json i]
+                set val [::llm_ui::json_parse_val $json i]
                 lappend result $key $val
             } else {
                 incr i
             }
-            json_skip_space $json i
+            ::llm_ui::json_skip_space $json i
             if {$i < [string length $json] && [string index $json $i] eq ","} { incr i }
         }
         return $result
@@ -73,12 +73,12 @@ namespace eval ::llm_ui {
         set result {}
         incr i
         while {$i < [string length $json]} {
-            json_skip_space $json i
+            ::llm_ui::json_skip_space $json i
             if {$i >= [string length $json]} break
             set c [string index $json $i]
             if {$c eq "\x5d"} { incr i; return $result }
-            lappend result [json_parse_val $json i]
-            json_skip_space $json i
+            lappend result [::llm_ui::json_parse_val $json i]
+            ::llm_ui::json_skip_space $json i
             if {$i < [string length $json] && [string index $json $i] eq ","} { incr i }
         }
         return $result
@@ -94,7 +94,7 @@ namespace eval ::llm_ui {
             if {$c eq "\""} {
                 set val [string range $json $start [expr {$i-1}]]
                 incr i
-                return [unescape_json $val]
+                return [::llm_ui::unescape_json $val]
             }
             if {$c eq "\\"} { incr i }
             incr i
@@ -126,7 +126,7 @@ namespace eval ::llm_ui {
                     foreach m $v {
                         if {[llength $m] > 1} {
                             set m_items {}
-                            foreach {mk mv} $m { lappend m_items "\"$mk\": \"[escape_json $mv]\"" }
+                            foreach {mk mv} $m { lappend m_items "\"$mk\": \"[::llm_ui::escape_json $mv]\"" }
                             lappend m_list "\x7b[join $m_items ", "]\x7d"
                         } else {
                             lappend m_list "\"$m\""
@@ -134,12 +134,12 @@ namespace eval ::llm_ui {
                     }
                     lappend items "\"models\": \x5b[join $m_list ", "]\x5d"
                 } else {
-                    lappend items "\"$k\": \"[escape_json $v]\""
+                    lappend items "\"$k\": \"[::llm_ui::escape_json $v]\""
                 }
             }
             lappend p_list "\x7b[join $items ", "]\x7d"
         }
-        return "\x7b\"default_prompt\": \"[escape_json $default_prompt]\", \"providers\": \x5b[join $p_list ", "]\x5d\x7d"
+        return "\x7b\"default_prompt\": \"[::llm_ui::escape_json $default_prompt]\", \"providers\": \x5b[join $p_list ", "]\x5d\x7d"
     }
 
     proc extract_ids {json key} {
@@ -220,7 +220,7 @@ namespace eval ::llm_ui {
                 set r ""
                 set c ""
                 foreach {mk mv} $m { if {$mk eq "role"} { set r $mv } elseif {$mk eq "content"} { set c $mv } }
-                lappend msg_json_list "\x7b\"role\":\"$r\",\"content\":\"[escape_json $c]\"\x7d"
+                lappend msg_json_list "\x7b\"role\":\"$r\",\"content\":\"[::llm_ui::escape_json $c]\"\x7d"
             }
             set body "\x7b\"model\":\"$model\",\"messages\":\x5b[join $msg_json_list ", "]\x5d\x7d"
 
@@ -494,8 +494,10 @@ namespace eval ::llm_ui {
                 }
                 my UpdateModelList $ids; return
             }
-            my FetchModels [$chatW cget -base_url]
+            my FetchModels [my cget_chatW_base_url]
         }
+
+        method cget_chatW_base_url {} { return [$chatW cget -base_url] }
 
         method FetchModels {base_url} {
             set url "$base_url/models"

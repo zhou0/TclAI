@@ -225,6 +225,21 @@ namespace eval ::llm_ui {
             $history configure -state disabled
             $history see end
         }
+        export SendMessage cget configure UpdateTranslations
+    }
+
+    proc ChatWidget {path args} {
+        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
+        rename $path ::$path:widget
+        proc ::$path {cmd args} [format {
+            set obj ::%s:obj
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            }
+            return [::%s:widget $cmd {*}$args]
+        } $path $path]
+        return $path
+    }
 
         method SaveHistory {} {
             set fh [open "history.json" w]
@@ -306,6 +321,7 @@ namespace eval ::llm_ui {
                 lappend messages [list role "assistant" content $content]
                 my SaveHistory
             }
+            my UpdateModelList $ids
         }
 
         method cget {opt} {

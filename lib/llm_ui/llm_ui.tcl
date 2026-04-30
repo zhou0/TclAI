@@ -3,102 +3,140 @@ package provide llm_ui 0.1
 package require TclOO
 package require Tk
 package require http
-package require tls
+catch {package require tls}
 package require msgcat
 
 namespace eval ::llm_ui {
-    ::msgcat::mcload [file join [file dirname [info script]] msgs]
-    http::register https 443 [list ::tls::socket -autoservername 1]
-    catch {package require json}
+    variable script_dir [file dirname [info script]]
+    ::msgcat::mcload [file join $script_dir msgs]
 
-    proc parse_json {json} {
-        if {[info commands ::json::json2dict] ne ""} {
-            if {![catch {::json::json2dict $json} data]} { return $data }
-        }
-        return [simple_json_parse $json]
+    if {[info commands ::tls::socket] ne ""} {
+        http::register https 443 [list ::tls::socket -autoservername 1]
     }
 
-    proc simple_json_parse {json} {
+    proc escape_json {str} {
+        return [string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t"] $str]
+    }
+
+    proc unescape_json {str} {
+        return [string map [list "\\\"" "\"" "\\\\" "\\" "\\n" "\n" "\\r" "\r" "\\t" "\t"] $str]
+    }
+
+    proc json_parse {json} {
         set json [string trim $json]
-        if {[string index $json 0] eq "\{" || [string index $json 0] eq "\["} {
-            set result {}
-            set i 0
-            set len [string length $json]
+        set i 0
+        return [json_parse_val $json i]
+    }
+
+    proc json_parse_val {json i_var} {
+        upvar 1 $i_var i
+        json_skip_space $json i
+        if {$i >= [string length $json]} { return "" }
+        set char [string index $json $i]
+        if {$char eq "\x7b"} { return [json_parse_obj $json i] }
+        if {$char eq "\x5b"} { return [json_parse_arr $json i] }
+        if {$char eq "\""} { return [json_parse_str $json i] }
+        return [json_parse_lit $json i]
+    }
+
+    proc json_skip_space {json i_var} {
+        upvar 1 $i_var i
+        while {$i < [string length $json] && [string is space [string index $json $i]]} { incr i }
+    }
+
+    proc json_parse_obj {json i_var} {
+        upvar 1 $i_var i
+        set result {}
+        incr i
+        while {$i < [string length $json]} {
+            json_skip_space $json i
+            if {$i >= [string length $json]} break
+            set c [string index $json $i]
+            if {$c eq "\x7d"} { incr i; return $result }
+            set key [json_parse_str $json i]
+            json_skip_space $json i
+            if {[string index $json $i] eq ":"} { incr i }
+            set val [json_parse_val $json i]
+            lappend result $key $val
+            json_skip_space $json i
+            if {[string index $json $i] eq ","} { incr i }
+        }
+        return $result
+    }
+
+    proc json_parse_arr {json i_var} {
+        upvar 1 $i_var i
+        set result {}
+        incr i
+        while {$i < [string length $json]} {
+            json_skip_space $json i
+            if {$i >= [string length $json]} break
+            set c [string index $json $i]
+            if {$c eq "\x5d"} { incr i; return $result }
+            lappend result [json_parse_val $json i]
+            json_skip_space $json i
+            if {[string index $json $i] eq ","} { incr i }
+        }
+        return $result
+    }
+
+    proc json_parse_str {json i_var} {
+        upvar 1 $i_var i
+        if {[string index $json $i] ne "\""} { return "" }
+        incr i
+        set start $i
+        while {$i < [string length $json]} {
+            set c [string index $json $i]
+            if {$c eq "\""} {
+                set val [string range $json $start [expr {$i-1}]]
+                incr i
+                return [unescape_json $val]
+            }
+            if {$c eq "\\"} { incr i }
             incr i
-            while {$i < $len - 1} {
-                set char [string index $json $i]
-                if {[string is space $char] || $char eq "," || $char eq ":"} { incr i; continue }
-                if {$char eq "\""} {
-                    set start [expr {$i + 1}]
-                    set end [string first "\"" $json $start]
-                    while {$end != -1 && [string index $json [expr {$end - 1}]] eq "\\"} {
-                        set end [string first "\"" $json [expr {$end + 1}]]
-                    }
-                    lappend result [unescape_json [string range $json $start [expr {$end - 1}]]]
-                    set i [expr {$end + 1}]
-                } elseif {$char eq "\{" || $char eq "\["} {
-                    set start $i
-                    set depth 1
-                    set open $char
-                    set close [expr {$char eq "\{" ? "\}" : "\]"}]
-                    incr i
-                    while {$depth > 0 && $i < $len} {
-                        set c [string index $json $i]
-                        if {$c eq "\""} {
-                             set s [expr {$i + 1}]
-                             set e [string first "\"" $json $s]
-                             while {$e != -1 && [string index $json [expr {$e - 1}]] eq "\\"} {
-                                 set e [string first "\"" $json [expr {$e + 1}]]
-                             }
-                             set i [expr {$e + 1}]
+        }
+        return ""
+    }
+
+    proc json_parse_lit {json i_var} {
+        upvar 1 $i_var i
+        set rest [string range $json $i end]
+        if {[regexp {^[^,\x5d\x7d \t\n\r]+} $rest match]} {
+            set i [expr {$i + [string length $match]}]
+            if {$match eq "true"} { return 1 }
+            if {$match eq "false"} { return 0 }
+            if {$match eq "null"} { return "" }
+            return $match
+        }
+        incr i
+        return ""
+    }
+
+    proc json_gen_providers {providers_data default_prompt} {
+        set p_list {}
+        foreach p $providers_data {
+            set items {}
+            foreach {k v} $p {
+                if {$k eq "models"} {
+                    set m_list {}
+                    foreach m $v {
+                        if {[llength $m] > 1} {
+                            set m_items {}
+                            foreach {mk mv} $m { lappend m_items "\"$mk\": \"[escape_json $mv]\"" }
+                            lappend m_list "\x7b[join $m_items ", "]\x7d"
                         } else {
-                            if {$c eq $open} { incr depth } elseif {$c eq $close} { incr depth -1 }
-                            incr i
+                            lappend m_list "\"$m\""
                         }
                     }
-                    lappend result [simple_json_parse [string range $json $start [expr {$i - 1}]]]
+                    lappend items "\"models\": \x5b[join $m_list ", "]\x5d"
                 } else {
-                    if {[regexp -start $i -- {[^,\]\} ]+} $json match]} {
-                        lappend result $match
-                        set i [expr {$i + [string length $match]}]
-                    } else { incr i }
+                    lappend items "\"$k\": \"[escape_json $v]\""
                 }
             }
-            return $result
+            lappend p_list "\x7b[join $items ", "]\x7d"
         }
-        return $json
+        return "\x7b\"default_prompt\": \"[escape_json $default_prompt]\", \"providers\": \x5b[join $p_list ", "]\x5d\x7d"
     }
-
-    proc dict_to_json {dict_data} {
-        set items {}
-        foreach {k v} $dict_data {
-            if {$k eq "providers"} {
-                set p_json_list {}
-                foreach p $v {
-                    set p_items {}
-                    foreach {pk pv} $p {
-                        if {$pk eq "models"} {
-                             set m_list {}
-                             foreach m $pv {
-                                 if {[llength $m] > 1} {
-                                     set m_items {}
-                                     foreach {mk mv} $m { lappend m_items "\"$mk\": \"[escape_json $mv]\"" }
-                                     lappend m_list "\{[join $m_items ", "]\}"
-                                 } else { lappend m_list "\"$m\"" }
-                             }
-                             lappend p_items "\"models\": \[[join $m_list ", "]\]"
-                        } else { lappend p_items "\"$pk\": \"[escape_json $pv]\"" }
-                    }
-                    lappend p_json_list "\{[join $p_items ", "]\}"
-                }
-                lappend items "\"providers\": \[[join $p_json_list ", "]\]"
-            } else { lappend items "\"$k\": \"[escape_json $v]\"" }
-        }
-        return "\{[join $items ", "]\}"
-    }
-
-    proc escape_json {str} { return [string map {\\ \\\\ \" \\\" \n \\n \r \\r \t \\t} $str] }
-    proc unescape_json {str} { return [string map {\\\" \" \\\\ \\ \\n \n \\r \r \\t \t} $str] }
 
     proc extract_ids {json key} {
         set ids {}
@@ -108,128 +146,124 @@ namespace eval ::llm_ui {
         return [lsort -unique $ids]
     }
 
-    # Chat Widget Class
     oo::class create ChatWidgetClass {
         variable w history input send options messages
 
         constructor {path args} {
-            set w [ttk::frame $path]
+            set w $path
+            set history ""
+            set input ""
             set messages {}
-            array set options {-provider "" -model "" -base_url "" -api_key "" -system_prompt ""}
-            my configure {*}$args
-            my CreateUI
-        }
+            set options(-provider) ""
+            set options(-base_url) ""
+            set options(-api_key) ""
+            set options(-model) "gpt-4o-mini"
+            set options(-system_prompt) "You are a helpful assistant."
 
-        method configure {args} {
-            foreach {opt val} $args { if {[info exists options($opt)]} { set options($opt) $val } }
-        }
+            ttk::frame $w
+            set history [text $w.history -height 15 -state disabled -wrap word]
+            set input [text $w.input -height 3 -wrap word]
+            set send [ttk::button $w.send -text [::msgcat::mc "Send"] -command [list [self] SendMessage]]
 
-        method cget {opt} { return $options($opt) }
-        method get_option_varname {opt} { return [my varname options($opt)] }
+            pack $history -side top -fill both -expand yes -padx 5 -pady 5
+            pack $input -side left -fill both -expand yes -padx 5 -pady 5
+            pack $send -side right -padx 5 -pady 5
 
-        method CreateUI {} {
-            set history_frame [ttk::frame $w.hframe]
-            grid $history_frame -row 0 -column 0 -sticky nsew -padx 5 -pady 5
-            set history [text $history_frame.txt -wrap word -state disabled -height 15]
-            set hscroll [ttk::scrollbar $history_frame.vsb -orient vertical -command [list $history yview]]
-            $history configure -yscrollcommand [list $hscroll set]
-            pack $hscroll -side right -fill y
-            pack $history -side left -fill both -expand yes
-            $history tag configure user -foreground blue -font {Helvetica 10 bold}
-            $history tag configure assistant -foreground darkgreen -font {Helvetica 10 bold}
-            $history tag configure error -foreground red
-            set input_frame [ttk::frame $w.iframe]
-            grid $input_frame -row 1 -column 0 -sticky ew -padx 5 -pady 5
-            set input [text $input_frame.txt -wrap word -height 4]
-            set iscroll [ttk::scrollbar $input_frame.vsb -orient vertical -command [list $input yview]]
-            $input configure -yscrollcommand [list $iscroll set]
-            pack $iscroll -side right -fill y
-            pack $input -side left -fill both -expand yes
-            set btn_frame [ttk::frame $w.bframe]
-            grid $btn_frame -row 2 -column 0 -sticky ew -padx 5 -pady 5
-            set send [ttk::button $btn_frame.send -text [::msgcat::mc "Send"] -command [list [self] SendMessage]]
-            set clear [ttk::button $btn_frame.clear -text [::msgcat::mc "Clear Chat"] -command [list [self] ClearChat]]
-            pack $send -side right -padx 5
-            pack $clear -side left -padx 5
-            grid rowconfigure $w 0 -weight 1
-            grid columnconfigure $w 0 -weight 1
+            $input bind <Return> [list [self] SendMessage]
+
+            if {[llength $args] > 0} {
+                my configure {*}$args
+            }
         }
 
         method UpdateTranslations {} {
-            $w.bframe.send configure -text [::msgcat::mc "Send"]
-            $w.bframe.clear configure -text [::msgcat::mc "Clear Chat"]
-        }
-
-        method AddToHistory {role message} {
-            if {![winfo exists $history]} return
-            $history configure -state normal
-            $history insert end "\n$role: " $role
-            $history insert end "$message\n"
-            $history configure -state disabled
-            $history see end
-        }
-
-        method ClearChat {} {
-            set messages {}
-            $history configure -state normal
-            $history delete 1.0 end
-            $history configure -state disabled
+            $w.send configure -text [::msgcat::mc "Send"]
         }
 
         method SendMessage {} {
             set msg [string trim [$input get 1.0 end]]
             if {$msg eq ""} return
+
             $input delete 1.0 end
-            my AddToHistory "user" $msg
+            my AppendHistory "User" $msg
             lappend messages [list role "user" content $msg]
+
             my CallAPI
         }
 
-        method BuildPayload {} {
-            set mlist {}
-            lappend mlist [format {{"role": "system", "content": "%s"}} [::llm_ui::escape_json $options(-system_prompt)]]
-            foreach msg $messages {
-                set r [dict get $msg role]
-                set c [dict get $msg content]
-                lappend mlist [format {{"role": "%s", "content": "%s"}} $r [::llm_ui::escape_json $c]]
-            }
-            return [format {{"model": "%s", "messages": [%s]}} $options(-model) [join $mlist ","]]
+        method AppendHistory {role msg} {
+            $history configure -state normal
+            $history insert end "$role: $msg\n\n"
+            $history configure -state disabled
+            $history see end
         }
 
         method CallAPI {} {
-            set payload [my BuildPayload]
-            set url "$options(-base_url)/chat/completions"
-            set headers [list "Content-Type" "application/json"]
-            if {$options(-api_key) ne ""} { lappend headers "Authorization" "Bearer $options(-api_key)" }
-            if {[catch {http::geturl $url -query [encoding convertto utf-8 $payload] -type "application/json" -headers $headers -command [list [self] ReadAPIResponseHttp]} token]} {
-                my AddToHistory "error" "HTTP Request Failed: $token"
+            set url "[$self cget -base_url]/chat/completions"
+            set key [$self cget -api_key]
+            set model [$self cget -model]
+            set system_prompt [$self cget -system_prompt]
+
+            if {$url eq "/chat/completions"} {
+                my AppendHistory "Error" "No provider configured."
                 return
             }
-            $send configure -state disabled
-            my AddToHistory "system" [::msgcat::mc "Assistant is thinking"]
-        }
 
-        method ReadAPIResponseHttp {token} {
+            set full_messages [linsert $messages 0 [list role "system" content $system_prompt]]
+
+            set msg_json_list {}
+            foreach m $full_messages {
+                set r ""
+                set c ""
+                foreach {mk mv} $m { if {$mk eq "role"} { set r $mv } elseif {$mk eq "content"} { set c $mv } }
+                lappend msg_json_list "\x7b\"role\":\"$r\",\"content\":\"[escape_json $c]\"\x7d"
+            }
+            set body "\x7b\"model\":\"$model\",\"messages\":\x5b[join $msg_json_list ", "]\x5d\x7d"
+
+            set headers [list "Content-Type" "application/json" "Authorization" "Bearer $key"]
+
+            if {[catch {http::geturl $url -query [encoding convertto utf-8 $body] -headers $headers -timeout 30000} token]} {
+                my AppendHistory "Error" $token
+                return
+            }
+
             set status [http::status $token]
-            set ncode [http::ncode $token]
+            set code [http::ncode $token]
             set data [encoding convertfrom utf-8 [http::data $token]]
-            if {$status eq "ok"} {
-                if {$ncode == 200} { my ProcessResponse $data } else { my AddToHistory "error" "API Error (HTTP $ncode): $data" }
-            } else { my AddToHistory "error" "HTTP Error: $status" }
             http::cleanup $token
-            if {[winfo exists $send]} { $send configure -state normal }
+
+            if {$status ne "ok" || $code != 200} {
+                my AppendHistory "Error" "HTTP $code: $data"
+                return
+            }
+
+            set res_dict [::llm_ui::json_parse $data]
+            set choices {}
+            foreach {rk rv} $res_dict { if {$rk eq "choices"} { set choices $rv; break } }
+            if {[llength $choices] > 0} {
+                set first [lindex $choices 0]
+                set msg_obj {}
+                foreach {ck cv} $first { if {$ck eq "message"} { set msg_obj $cv; break } }
+                set content ""
+                foreach {mk mv} $msg_obj { if {$mk eq "content"} { set content $mv; break } }
+                my AppendHistory "AI" $content
+                lappend messages [list role "assistant" content $content]
+            }
         }
 
-        method ProcessResponse {response} {
-            if {[regexp {"content":\s*"((?:[^"\\]|\\.)*)"} $response -> content]} {
-                set content [::llm_ui::unescape_json $content]
-                my AddToHistory "assistant" $content
-                lappend messages [list role "assistant" content $content]
-            } elseif {[regexp {"error":\s*\{"message":\s*"([^"]*)"} $response -> err_msg]} {
-                my AddToHistory "error" "API Error: $err_msg"
-            } else { my AddToHistory "error" "Failed to parse API response." }
+        method cget {opt} {
+            if {[info exists options($opt)]} { return $options($opt) }
+            return ""
         }
-        export configure cget get_option_varname SendMessage ClearChat AddToHistory BuildPayload ProcessResponse ReadAPIResponseHttp UpdateTranslations
+
+        method configure {args} {
+            if {[llength $args] == 0} { return [array get options] }
+            if {[llength $args] == 1} { return $options([lindex $args 0]) }
+            foreach {opt val} $args {
+                set options($opt) $val
+            }
+        }
+        export SendMessage cget configure UpdateTranslations
     }
 
     proc ChatWidget {path args} {
@@ -246,57 +280,67 @@ namespace eval ::llm_ui {
         variable w chatW providers_data current_p_name cb_p def_p_text sys_p_text cb_lang default_prompt
 
         constructor {path chatWidget args} {
-            set w [ttk::frame $path]
+            set w $path
             set chatW $chatWidget
             set providers_data {}
             set current_p_name ""
-            set default_prompt ""
+            set default_prompt "You are a helpful assistant."
+
+            ttk::frame $w
             my LoadProviders
-            my CreateUI
+            my BuildUI
         }
 
         method LoadProviders {} {
-            set filename "providers.json"
-            if {[file exists $filename]} {
-                set fh [open $filename r]
-                set data [::llm_ui::parse_json [read $fh]]
+            if {[file exists "providers.json"]} {
+                set fh [open "providers.json" r]
+                set json [read $fh]
                 close $fh
-                foreach {k v} $data { if {$k eq "default_prompt"} { set default_prompt $v } elseif {$k eq "providers"} { set providers_data $v } }
-            }
-            if {[llength $providers_data] == 0} {
-                set default_prompt "You are a helpful assistant."
-                set providers_data {{name OpenAI base_url https://api.openai.com/v1 api_key "" models {}}}
+                set data [::llm_ui::json_parse $json]
+                set providers_data {}
+                foreach {k v} $data {
+                    if {$k eq "providers"} { set providers_data $v }
+                    if {$k eq "default_prompt"} { set default_prompt $v }
+                }
+            } else {
+                set providers_data [list \
+                    [list name "OpenAI" base_url "https://api.openai.com/v1" api_key "" models {}] \
+                    [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
+                    [list name "SiliconFlow" base_url "https://api.siliconflow.cn/v1" api_key "" models {}] \
+                ]
             }
         }
 
         method SaveProviders {} {
-            set data [list default_prompt $default_prompt providers $providers_data]
             set fh [open "providers.json" w]
-            puts $fh [::llm_ui::dict_to_json $data]
+            puts $fh [::llm_ui::json_gen_providers $providers_data $default_prompt]
             close $fh
         }
 
         method FindProviderIdx {name} {
-            set idx 0
+            set i 0
             foreach p $providers_data {
-                set p_name ""
-                foreach {k v} $p { if {$k eq "name"} { set p_name $v; break } }
-                if {$p_name eq $name} { return $idx }
-                incr idx
+                set found 0
+                foreach {k v} $p { if {$k eq "name" && $v eq $name} { set found 1; break } }
+                if {$found} { return $i }
+                incr i
             }
             return -1
         }
 
-        method CreateUI {} {
+        method BuildUI {} {
             set f [ttk::labelframe $w.config -text [::msgcat::mc "Settings"]]
-            pack $f -fill both -expand yes -padx 10 -pady 10 -ipadx 5 -ipady 5
+            pack $f -fill both -expand yes -padx 10 -pady 10
+
             set row 0
             ttk::label $f.llang -text [::msgcat::mc "Language"]
-            set cb_lang [ttk::combobox $f.cblang -values {"English" "简体中文" "繁體中文"} -state readonly]
             grid $f.llang -row $row -column 0 -sticky e -padx 5 -pady 5
+            set current_locale [::msgcat::mclocale]
+            set lang_name "English"
+            if {$current_locale eq "zh_cn"} { set lang_name "简体中文" } elseif {$current_locale eq "zh_tw"} { set lang_name "繁體中文" }
+            set cb_lang [ttk::combobox $f.cblang -values [list "English" "简体中文" "繁體中文"] -state readonly]
+            $cb_lang set $lang_name
             grid $cb_lang -row $row -column 1 -sticky ew -padx 5 -pady 5
-            set current_lang [::msgcat::mclocale]
-            if {[string match zh_cn* $current_lang]} { $cb_lang current 1 } elseif {[string match zh_tw* $current_lang] || [string match zh_hk* $current_lang]} { $cb_lang current 2 } else { $cb_lang current 0 }
             bind $cb_lang <<ComboboxSelected>> [list [self] OnLanguageSelected]
             incr row
             ttk::label $f.lp -text [::msgcat::mc "Provider"]
@@ -343,7 +387,7 @@ namespace eval ::llm_ui {
             ttk::button $f.btn_save -text [::msgcat::mc "Save Prompts"] -command [list [self] SavePrompts]
             grid $f.btn_save -row $row -column 1 -sticky e -padx 5 -pady 5
             grid columnconfigure $f 1 -weight 1
-            grid rowconfigure $f [expr {$row-2}] -weight 1
+            grid rowconfigure $f [expr {$row-1}] -weight 1
             grid rowconfigure $f [expr {$row-3}] -weight 1
             if {[llength $p_names] > 0} { $cb_p current 0; after idle [list [self] OnProviderSelected $cb_p] }
         }
@@ -367,7 +411,7 @@ namespace eval ::llm_ui {
             set locale en
             if {$lang eq "简体中文"} { set locale zh_cn } elseif {$lang eq "繁體中文"} { set locale zh_tw }
             ::msgcat::mclocale $locale
-            set fh [open "preference.json" w]; puts $fh "\{\"language\": \"$locale\"\}"; close $fh
+            set fh [open "preference.json" w]; puts $fh "\x7b\"language\": \"$locale\"\x7d"; close $fh
             my UpdateTranslations
             $chatW UpdateTranslations
             event generate . <<LanguageChanged>>
@@ -412,8 +456,11 @@ namespace eval ::llm_ui {
                 set new_models {}
                 foreach m $models {
                     set id ""
-                    foreach {mk mv} $m { if {$mk eq "id"} { set id $mv; break } }
-                    if {$id eq $m_name || $m eq $m_name} { set m [list id $m_name system_prompt $sys_prompt] }
+                    if {[llength $m] > 1} {
+                        set midx [lsearch -exact $m "id"]
+                        if {$midx != -1} { set id [lindex $m [expr {$midx + 1}]] }
+                    } else { set id $m }
+                    if {$id eq $m_name} { set m [list id $m_name system_prompt $sys_prompt] }
                     lappend new_models $m
                 }
                 set new_p {}
@@ -425,12 +472,19 @@ namespace eval ::llm_ui {
         }
 
         method RefreshModels {} {
-            set p [lindex $providers_data [my FindProviderIdx $current_p_name]]
+            set p_idx [my FindProviderIdx $current_p_name]
+            if {$p_idx == -1} return
+            set p [lindex $providers_data $p_idx]
             set models {}
             foreach {k v} $p { if {$k eq "models"} { set models $v; break } }
             if {[llength $models] > 0} {
                 set ids {}
-                foreach m $models { if {[llength $m] > 1} { foreach {mk mv} $m { if {$mk eq "id"} { lappend ids $mv; break } } } else { lappend ids $m } }
+                foreach m $models {
+                    if {[llength $m] > 1} {
+                        set midx [lsearch -exact $m "id"]
+                        if {$midx != -1} { lappend ids [lindex $m [expr {$midx + 1}]] }
+                    } else { lappend ids $m }
+                }
                 my UpdateModelList $ids; return
             }
             my FetchModels [$chatW cget -base_url]
@@ -440,11 +494,11 @@ namespace eval ::llm_ui {
             set url "$base_url/models"
             set headers [list "Authorization" "Bearer [$chatW cget -api_key]"]
             if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
-                my UpdateModelList {"gpt-4o-mini" "gpt-4o"}; return
+                my UpdateModelList [list "gpt-4o-mini" "gpt-4o"]; return
             }
             set res [encoding convertfrom utf-8 [http::data $token]]; http::cleanup $token
             set ids [::llm_ui::extract_ids $res "id"]
-            if {[llength $ids] == 0} { set ids {"gpt-4o-mini" "gpt-4o"} }
+            if {[llength $ids] == 0} { set ids [list "gpt-4o-mini" "gpt-4o"] }
             set p_idx [my FindProviderIdx $current_p_name]
             if {$p_idx != -1} {
                 set p [lindex $providers_data $p_idx]
@@ -471,12 +525,19 @@ namespace eval ::llm_ui {
         method OnModelSelected {w_cb} {
             set model [$w_cb get]
             $chatW configure -model $model
-            set p [lindex $providers_data [my FindProviderIdx $current_p_name]]
+            set p_idx [my FindProviderIdx $current_p_name]
+            if {$p_idx == -1} return
+            set p [lindex $providers_data $p_idx]
             set models {}; foreach {k v} $p { if {$k eq "models"} { set models $v; break } }
             set prompt $default_prompt
             foreach m $models {
                 set id ""; set sp ""
-                foreach {mk mv} $m { if {$mk eq "id"} { set id $mv } elseif {$mk eq "system_prompt"} { set sp $mv } }
+                if {[llength $m] > 1} {
+                    set midx [lsearch -exact $m "id"]
+                    if {$midx != -1} { set id [lindex $m [expr {$midx + 1}]] }
+                    set sidx [lsearch -exact $m "system_prompt"]
+                    if {$sidx != -1} { set sp [lindex $m [expr {$sidx + 1}]] }
+                } else { set id $m }
                 if {$id eq $model} { if {$sp ne ""} { set prompt $sp }; break }
             }
             $sys_p_text delete 1.0 end; $sys_p_text insert 1.0 $prompt

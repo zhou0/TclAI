@@ -10,7 +10,7 @@ package require msgcat
 set locale en
 if {[file exists "preference.json"]} {
     set fh [open "preference.json" r]
-    set prefs [::llm_ui::parse_json [read $fh]]
+    set prefs [::llm_ui::json_parse [read $fh]]
     close $fh
     foreach {k v} $prefs { if {$k eq "language"} { set locale $v } }
 }
@@ -36,9 +36,7 @@ pack .main -side right -fill both -expand yes
 
 proc ShowScreen {id} {
     if {$id eq "toggle"} {
-        set current [.nav cget -state]
-        set new [expr {$current eq "collapsed" ? "expanded" : "collapsed"}]
-        .nav configure -state $new
+        after idle [list .nav configure -state [expr {[.nav cget -state] eq "collapsed" ? "expanded" : "collapsed"}]]
         return
     }
     pack forget .main.chat
@@ -52,9 +50,7 @@ proc ShowScreen {id} {
 bind .nav <<NavRailSelected>> { ShowScreen [%W get_selection] }
 bind . <<LanguageChanged>> {
     wm title . "TTK LLM Frontend"
-    .nav configure -state [.nav cget -state] ;# trigger layout update
-    # Note: Full dynamic relabeling of nav items might need navrail extension
-    # For now, we update what we can.
+    .nav configure -state [.nav cget -state]
 }
 
 ShowScreen chat

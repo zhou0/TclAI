@@ -134,7 +134,7 @@ namespace eval ttk::m3 {
             foreach id [dict keys $items] {
                 my update_item_layout $id
             }
-            my select $selected
+            my select $selected 1
         }
 
         method cget {opt} {
@@ -195,7 +195,7 @@ namespace eval ttk::m3 {
             }
         }
 
-        method select {id} {
+        method select {id {quiet 0}} {
             if {$id eq "" || ![dict exists $items $id]} return
 
             # Deactivate old
@@ -236,7 +236,9 @@ namespace eval ttk::m3 {
             $wrapper itemconfigure icon -fill $activeFg
             [dict get $data label] configure -style [expr {$state eq "collapsed" ? "M3NavRail.Active.TLabel" : "M3NavRail.ExpandedActive.TLabel"}]
 
-            event generate $w <<NavRailSelected>> -data $id
+            if {!$quiet} {
+                event generate $w <<NavRailSelected>> -data $id
+            }
         }
 
         method get_selection {} { return $selected }

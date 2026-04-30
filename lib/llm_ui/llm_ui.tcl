@@ -142,6 +142,18 @@ namespace eval ::llm_ui {
         return "\x7b\"default_prompt\": \"[::llm_ui::escape_json $default_prompt]\", \"providers\": \x5b[join $p_list ", "]\x5d\x7d"
     }
 
+    proc json_gen_history {messages} {
+        set m_list {}
+        foreach m $messages {
+            set m_items {}
+            foreach {k v} $m {
+                lappend m_items "\"$k\": \"[::llm_ui::escape_json $v]\""
+            }
+            lappend m_list "\x7b[join $m_items ", "]\x7d"
+        }
+        return "\x5b[join $m_list ", "]\x5d"
+    }
+
     proc extract_ids {json key} {
         set ids {}
         set pattern "\"$key\":\\s*\"(\x5b^\x22\x5d+)\""
@@ -178,6 +190,7 @@ namespace eval ::llm_ui {
             if {[llength $args] > 0} {
                 my configure {*}$args
             }
+            my LoadHistory
         }
 
         method UpdateTranslations {} {
@@ -191,6 +204,7 @@ namespace eval ::llm_ui {
             $input delete 1.0 end
             my AppendHistory "User" $msg
             lappend messages [list role "user" content $msg]
+            my SaveHistory
 
             my CallAPI
         }
@@ -200,6 +214,34 @@ namespace eval ::llm_ui {
             $history insert end "$role: $msg\n\n"
             $history configure -state disabled
             $history see end
+        }
+
+        method SaveHistory {} {
+            set fh [open "history.json" w]
+            puts $fh [::llm_ui::json_gen_history $messages]
+            close $fh
+        }
+
+        method LoadHistory {} {
+            if {[file exists "history.json"]} {
+                set fh [open "history.json" r]
+                set json [read $fh]
+                close $fh
+                if {[catch {set loaded [::llm_ui::json_parse $json]} err]} {
+                    set messages {}
+                } else {
+                    set messages $loaded
+                    foreach m $messages {
+                        set role "User"
+                        set content ""
+                        foreach {k v} $m {
+                            if {$k eq "role" && $v eq "assistant"} { set role "AI" }
+                            if {$k eq "content"} { set content $v }
+                        }
+                        my AppendHistory $role $content
+                    }
+                }
+            }
         }
 
         method CallAPI {} {
@@ -252,6 +294,7 @@ namespace eval ::llm_ui {
                 foreach {mk mv} $msg_obj { if {$mk eq "content"} { set content $mv; break } }
                 my AppendHistory "AI" $content
                 lappend messages [list role "assistant" content $content]
+                my SaveHistory
             }
         }
 
@@ -267,7 +310,7 @@ namespace eval ::llm_ui {
                 set options($opt) $val
             }
         }
-        export SendMessage cget configure UpdateTranslations
+        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
     }
 
     proc ChatWidget {path args} {

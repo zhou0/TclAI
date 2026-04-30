@@ -203,10 +203,10 @@ namespace eval ::llm_ui {
         }
 
         method CallAPI {} {
-            set url "[$self cget -base_url]/chat/completions"
-            set key [$self cget -api_key]
-            set model [$self cget -model]
-            set system_prompt [$self cget -system_prompt]
+            set url "[my cget -base_url]/chat/completions"
+            set key [my cget -api_key]
+            set model [my cget -model]
+            set system_prompt [my cget -system_prompt]
 
             if {$url eq "/chat/completions"} {
                 my AppendHistory "Error" "No provider configured."

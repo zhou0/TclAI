@@ -8,10 +8,20 @@ package require msgcat
 
 namespace eval ::llm_ui {
     variable script_dir [file dirname [info script]]
-    ::msgcat::mcload [file join $script_dir msgs]
+
+    proc mcload_msgs {} {
+        variable script_dir
+        ::msgcat::mcload [file join $script_dir msgs]
+    }
+
+    mcload_msgs
 
     if {[info commands ::tls::socket] ne ""} {
         http::register https 443 [list ::tls::socket -autoservername 1]
+    }
+
+    proc mc {src} {
+        return [::msgcat::mc $src]
     }
 
     proc escape_json {str} {
@@ -179,7 +189,7 @@ namespace eval ::llm_ui {
             ttk::frame $w
             set history [text $w.history -height 15 -state disabled -wrap word]
             set input [text $w.input -height 3 -wrap word]
-            set send [ttk::button $w.send -text [::msgcat::mc "Send"] -command [list [self] SendMessage]]
+            set send [ttk::button $w.send -text [::llm_ui::mc "Send"] -command [list [self] SendMessage]]
 
             pack $history -side top -fill both -expand yes -padx 5 -pady 5
             pack $input -side left -fill both -expand yes -padx 5 -pady 5
@@ -194,7 +204,7 @@ namespace eval ::llm_ui {
         }
 
         method UpdateTranslations {} {
-            $w.send configure -text [::msgcat::mc "Send"]
+            $w.send configure -text [::llm_ui::mc "Send"]
         }
 
         method SendMessage {} {
@@ -379,11 +389,11 @@ namespace eval ::llm_ui {
         }
 
         method BuildUI {} {
-            set f [ttk::labelframe $w.config -text [::msgcat::mc "Settings"]]
+            set f [ttk::labelframe $w.config -text [::llm_ui::mc "Settings"]]
             pack $f -fill both -expand yes -padx 10 -pady 10
 
             set row 0
-            ttk::label $f.llang -text [::msgcat::mc "Language"]
+            ttk::label $f.llang -text [::llm_ui::mc "Language"]
             grid $f.llang -row $row -column 0 -sticky e -padx 5 -pady 5
             set current_locale [::msgcat::mclocale]
             set lang_name "English"
@@ -393,7 +403,7 @@ namespace eval ::llm_ui {
             grid $cb_lang -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_lang <<ComboboxSelected>> [list [self] OnLanguageSelected]
             incr row
-            ttk::label $f.lp -text [::msgcat::mc "Provider"]
+            ttk::label $f.lp -text [::llm_ui::mc "Provider"]
             set p_names {}
             foreach p $providers_data { foreach {k v} $p { if {$k eq "name"} { lappend p_names $v; break } } }
             set cb_p [ttk::combobox $f.cbp -values $p_names -state readonly]
@@ -401,25 +411,25 @@ namespace eval ::llm_ui {
             grid $cb_p -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_p <<ComboboxSelected>> [list [self] OnProviderSelected %W]
             incr row
-            ttk::label $f.lk -text [::msgcat::mc "API Key"]
+            ttk::label $f.lk -text [::llm_ui::mc "API Key"]
             set e_k [ttk::entry $f.ek -show "*"]
             grid $f.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $e_k <FocusOut> [list [self] ChangeKey]
             incr row
-            ttk::button $f.btn_key -text [::msgcat::mc "Change API Key"] -command [list [self] ChangeKey]
+            ttk::button $f.btn_key -text [::llm_ui::mc "Change API Key"] -command [list [self] ChangeKey]
             grid $f.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
-            ttk::label $f.lm -text [::msgcat::mc "Model"]
+            ttk::label $f.lm -text [::llm_ui::mc "Model"]
             set cb_m [ttk::combobox $f.cbm -state readonly]
             grid $f.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
             incr row
-            ttk::button $f.btn_refresh -text [::msgcat::mc "Refresh Models"] -command [list [self] RefreshModels]
+            ttk::button $f.btn_refresh -text [::llm_ui::mc "Refresh Models"] -command [list [self] RefreshModels]
             grid $f.btn_refresh -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
-            ttk::label $f.ldp -text [::msgcat::mc "Default Prompt"]
+            ttk::label $f.ldp -text [::llm_ui::mc "Default Prompt"]
             grid $f.ldp -row $row -column 0 -sticky ne -padx 5 -pady 5
             set def_p_frame [ttk::frame $f.dpf]
             grid $def_p_frame -row $row -column 1 -sticky nsew -padx 5 -pady 5
@@ -427,14 +437,14 @@ namespace eval ::llm_ui {
             pack $def_p_text -fill both -expand yes
             $def_p_text insert 1.0 $default_prompt
             incr row
-            ttk::label $f.lsp -text [::msgcat::mc "System Prompt"]
+            ttk::label $f.lsp -text [::llm_ui::mc "System Prompt"]
             grid $f.lsp -row $row -column 0 -sticky ne -padx 5 -pady 5
             set sys_p_frame [ttk::frame $f.spf]
             grid $sys_p_frame -row $row -column 1 -sticky nsew -padx 5 -pady 5
             set sys_p_text [text $sys_p_frame.txt -height 3 -wrap word]
             pack $sys_p_text -fill both -expand yes
             incr row
-            ttk::button $f.btn_save -text [::msgcat::mc "Save Prompts"] -command [list [self] SavePrompts]
+            ttk::button $f.btn_save -text [::llm_ui::mc "Save Prompts"] -command [list [self] SavePrompts]
             grid $f.btn_save -row $row -column 1 -sticky e -padx 5 -pady 5
             grid columnconfigure $f 1 -weight 1
             grid rowconfigure $f [expr {$row-1}] -weight 1
@@ -444,16 +454,16 @@ namespace eval ::llm_ui {
 
         method UpdateTranslations {} {
             set f $w.config
-            $f configure -text [::msgcat::mc "Settings"]
-            $f.llang configure -text [::msgcat::mc "Language"]
-            $f.lp configure -text [::msgcat::mc "Provider"]
-            $f.lk configure -text [::msgcat::mc "API Key"]
-            $f.btn_key configure -text [::msgcat::mc "Change API Key"]
-            $f.lm configure -text [::msgcat::mc "Model"]
-            $f.btn_refresh configure -text [::msgcat::mc "Refresh Models"]
-            $f.ldp configure -text [::msgcat::mc "Default Prompt"]
-            $f.lsp configure -text [::msgcat::mc "System Prompt"]
-            $f.btn_save configure -text [::msgcat::mc "Save Prompts"]
+            $f configure -text [::llm_ui::mc "Settings"]
+            $f.llang configure -text [::llm_ui::mc "Language"]
+            $f.lp configure -text [::llm_ui::mc "Provider"]
+            $f.lk configure -text [::llm_ui::mc "API Key"]
+            $f.btn_key configure -text [::llm_ui::mc "Change API Key"]
+            $f.lm configure -text [::llm_ui::mc "Model"]
+            $f.btn_refresh configure -text [::llm_ui::mc "Refresh Models"]
+            $f.ldp configure -text [::llm_ui::mc "Default Prompt"]
+            $f.lsp configure -text [::llm_ui::mc "System Prompt"]
+            $f.btn_save configure -text [::llm_ui::mc "Save Prompts"]
         }
 
         method OnLanguageSelected {} {
@@ -461,6 +471,7 @@ namespace eval ::llm_ui {
             set locale en
             if {$lang eq "简体中文"} { set locale zh_cn } elseif {$lang eq "繁體中文"} { set locale zh_tw }
             ::msgcat::mclocale $locale
+            ::llm_ui::mcload_msgs
             set fh [open "preference.json" w]; puts $fh "\x7b\"language\": \"$locale\"\x7d"; close $fh
             my UpdateTranslations
             $chatW UpdateTranslations

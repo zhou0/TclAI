@@ -53,6 +53,24 @@ namespace eval ttk::m3 {
             return $itemFrame
         }
 
+        method itemconfigure {id args} {
+            if {![dict exists $items $id]} return
+            set data [dict get $items $id]
+            foreach {opt val} $args {
+                switch -- $opt {
+                    -text {
+                        dict set data text $val
+                        [dict get $data label] configure -text $val
+                    }
+                    -icon {
+                        dict set data icon_char $val
+                        [dict get $data wrapper] itemconfigure icon -text $val
+                    }
+                }
+            }
+            dict set items $id $data
+        }
+
         method update_item_layout {id} {
             set data [dict get $items $id]
             set wrapper [dict get $data wrapper]

@@ -60,7 +60,7 @@ puts "--- Starting Test Suite ---"
 # 1. Test JSON Parser
 puts "Testing JSON Parser..."
 set json {{"a": 1, "b": [2, "3"], "c": {"d": true, "e": null}}}
-set d [::llm_ui::json_parse $json]
+set d [::llm_ui::logic::json_parse $json]
 assert {[dict get $d a] == 1} "json_parse simple value"
 assert {[lindex [dict get $d b] 1] eq "3"} "json_parse array"
 assert {[dict get [dict get $d c] d] == 1} "json_parse nested object"
@@ -69,7 +69,7 @@ puts "JSON Parser: OK"
 # 2. Test JSON Generator (History)
 puts "Testing History JSON Generator..."
 set msgs { {role user content "hello"} {role assistant content "hi world"} }
-set gen [::llm_ui::json_gen_history $msgs]
+set gen [::llm_ui::logic::json_gen_history $msgs]
 assert {[string match {*role*: *user*} $gen]} "json_gen_history contains role"
 assert {[string match {*content*: *hi world*} $gen]} "json_gen_history contains content"
 puts "History JSON Generator: OK"
@@ -79,7 +79,7 @@ puts "Testing Provider JSON Generator..."
 set providers {
     {name "P1" base_url "U1" api_key "K1" models {{id "M1" system_prompt "S1"}}}
 }
-set gen [::llm_ui::json_gen_providers $providers "Default"]
+set gen [::llm_ui::logic::json_gen_providers $providers "Default"]
 assert {[string match {*default_prompt*: *Default*} $gen]} "json_gen_providers contains default prompt"
 assert {[string match {*name*: *P1*} $gen]} "json_gen_providers contains provider name"
 puts "Provider JSON Generator: OK"

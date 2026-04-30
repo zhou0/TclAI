@@ -12,12 +12,12 @@ if {[file exists "preference.json"]} {
     set fh [open "preference.json" r]
     set json [read $fh]
     close $fh
-    if {![catch {set d [::llm_ui::json_parse $json]}]} {
+    if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
         foreach {k v} $d { if {$k eq "language"} { set locale $v } }
     }
 }
 ::msgcat::mclocale $locale
-::llm_ui::mcload_msgs
+::llm_ui::logic::mcload_msgs
 
 wm title . "TTK LLM Frontend"
 wm geometry . 800x600
@@ -25,8 +25,8 @@ wm geometry . 800x600
 # Create Navigation Rail
 ttk::m3::navrail .nav
 .nav add_item toggle "☰" ""
-.nav add_item chat "💬" [::llm_ui::mc "Chat"]
-.nav add_item settings "⚙️" [::llm_ui::mc "Settings"]
+.nav add_item chat "💬" [::llm_ui::logic::mc "Chat"]
+.nav add_item settings "⚙️" [::llm_ui::logic::mc "Settings"]
 
 # Main container for screens
 ttk::frame .main
@@ -52,8 +52,8 @@ proc ShowScreen {id} {
 
 bind .nav <<NavRailSelected>> { ShowScreen [%W get_selection] }
 bind . <<LanguageChanged>> {
-    .nav itemconfigure chat -text [::llm_ui::mc "Chat"]
-    .nav itemconfigure settings -text [::llm_ui::mc "Settings"]
+    .nav itemconfigure chat -text [::llm_ui::logic::mc "Chat"]
+    .nav itemconfigure settings -text [::llm_ui::logic::mc "Settings"]
     .nav configure -state [.nav cget -state]
 }
 

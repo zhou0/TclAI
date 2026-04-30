@@ -9,9 +9,10 @@ package require msgcat
 set locale en
 if {[file exists "preference.json"]} {
     set fh [open "preference.json" r]
-    set prefs [::llm_ui::json_parse [read $fh]]
+    set json [read $fh]
     close $fh
-    foreach {k v} $prefs { if {$k eq "language"} { set locale $v } }
+    set d [::llm_ui::json_parse $json]
+    foreach {k v} $d { if {$k eq "language"} { set locale $v } }
 }
 ::msgcat::mclocale $locale
 

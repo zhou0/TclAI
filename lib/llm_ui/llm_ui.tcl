@@ -53,13 +53,17 @@ namespace eval ::llm_ui {
             if {$i >= [string length $json]} break
             set c [string index $json $i]
             if {$c eq "\x7d"} { incr i; return $result }
-            set key [json_parse_str $json i]
+            if {$c eq "\""} {
+                set key [json_parse_str $json i]
+                json_skip_space $json i
+                if {$i < [string length $json] && [string index $json $i] eq ":"} { incr i }
+                set val [json_parse_val $json i]
+                lappend result $key $val
+            } else {
+                incr i
+            }
             json_skip_space $json i
-            if {[string index $json $i] eq ":"} { incr i }
-            set val [json_parse_val $json i]
-            lappend result $key $val
-            json_skip_space $json i
-            if {[string index $json $i] eq ","} { incr i }
+            if {$i < [string length $json] && [string index $json $i] eq ","} { incr i }
         }
         return $result
     }
@@ -75,14 +79,14 @@ namespace eval ::llm_ui {
             if {$c eq "\x5d"} { incr i; return $result }
             lappend result [json_parse_val $json i]
             json_skip_space $json i
-            if {[string index $json $i] eq ","} { incr i }
+            if {$i < [string length $json] && [string index $json $i] eq ","} { incr i }
         }
         return $result
     }
 
     proc json_parse_str {json i_var} {
         upvar 1 $i_var i
-        if {[string index $json $i] ne "\""} { return "" }
+        if {$i >= [string length $json] || [string index $json $i] ne "\""} { return "" }
         incr i
         set start $i
         while {$i < [string length $json]} {
@@ -169,7 +173,7 @@ namespace eval ::llm_ui {
             pack $input -side left -fill both -expand yes -padx 5 -pady 5
             pack $send -side right -padx 5 -pady 5
 
-            $input bind <Return> [list [self] SendMessage]
+            bind $input <Return> [list [self] SendMessage]
 
             if {[llength $args] > 0} {
                 my configure {*}$args
@@ -271,7 +275,10 @@ namespace eval ::llm_ui {
         rename $path ::$path:widget
         proc ::$path {cmd args} [format {
             set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} { return [$obj $cmd {*}$args] } else { return [::%s:widget $cmd {*}$args] }
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            }
+            return [::%s:widget $cmd {*}$args]
         } $path $path]
         return $path
     }
@@ -551,7 +558,10 @@ namespace eval ::llm_ui {
         rename $path ::$path:widget
         proc ::$path {cmd args} [format {
             set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} { return [$obj $cmd {*}$args] } else { return [::%s:widget $cmd {*}$args] }
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            }
+            return [::%s:widget $cmd {*}$args]
         } $path $path]
         return $path
     }

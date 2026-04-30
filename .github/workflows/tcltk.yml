@@ -22,11 +22,11 @@ jobs:
       # --- 环境准备 ---
       - name: Install Tcl (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y tcl tcl-dev tcltls tcllib
+        run: sudo apt-get install -y tcl tcl-dev tk-dev
 
       - name: Install Tcl (macOS)
         if: matrix.os == 'macos-latest'
-        run: brew install tcl-tk tcllib tcl-tls
+        run: brew install tcl-tk@8
 
       - name: Install Tcl (Windows)
         if: matrix.os == 'windows-latest'

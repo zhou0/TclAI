@@ -202,7 +202,9 @@ namespace eval ::llm_ui {
         }
 
         method SaveHistory {} {
-            set hist_file [file join "data" "history.json"]
+            set data_dir "data"
+            if {![file isdirectory $data_dir]} { file mkdir $data_dir }
+            set hist_file [file join $data_dir "history.json"]
             set fh [open $hist_file w]
             set m_list {}
             foreach m $messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
@@ -277,7 +279,10 @@ namespace eval ::llm_ui {
         }
 
         method SavePreferences {args} {
-            set pref_file [file join "settings" "preference.json"]
+            set settings_dir "settings"
+            if {![file isdirectory $settings_dir]} { file mkdir $settings_dir }
+            set pref_file [file join $settings_dir "preference.json"]
+
             set d {}
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]; set json [read $fh]; close $fh

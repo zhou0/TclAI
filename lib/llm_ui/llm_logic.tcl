@@ -125,47 +125,20 @@ namespace eval ::llm_ui::logic {
     proc json_gen_dict {data} {
         set items {}
         foreach {k v} $data {
-            lappend items "\"$k\": \"[escape_json $v]\""
+            lappend items "\"$k\": [json_gen_val $v]"
         }
         return "\x7b[join $items ", "]\x7d"
     }
 
-    proc json_gen_providers {providers_data} {
-        set p_list {}
-        foreach p $providers_data {
-            set items {}
-            foreach {k v} $p {
-                if {$k eq "models"} {
-                    set m_list {}
-                    foreach m $v {
-                        if {[llength $m] > 1} {
-                            set m_items {}
-                            foreach {mk mv} $m { lappend m_items "\"$mk\": \"[escape_json $mv]\"" }
-                            lappend m_list "\x7b[join $m_items ", "]\x7d"
-                        } else {
-                            lappend m_list "\"$m\""
-                        }
-                    }
-                    lappend items "\"models\": \x5b[join $m_list ", "]\x5d"
-                } else {
-                    lappend items "\"$k\": \"[escape_json $v]\""
-                }
-            }
-            lappend p_list "\x7b[join $items ", "]\x7d"
-        }
-        return "\x7b\"providers\": \x5b[join $p_list ", "]\x5d\x7d"
-    }
+    proc json_gen_val {val} {
+        if {[string is integer -strict $val]} { return $val }
+        if {$val eq "true"} { return "true" }
+        if {$val eq "false"} { return "false" }
+        set trimmed [string trim $val]
+        if {[string index $trimmed 0] eq "\x7b" && [string index $trimmed end] eq "\x7d"} { return $val }
+        if {[string index $trimmed 0] eq "\[" && [string index $trimmed end] eq "\]"} { return $val }
 
-    proc json_gen_history {messages} {
-        set m_list {}
-        foreach m $messages {
-            set m_items {}
-            foreach {k v} $m {
-                lappend m_items "\"$k\": \"[escape_json $v]\""
-            }
-            lappend m_list "\x7b[join $m_items ", "]\x7d"
-        }
-        return "\x5b[join $m_list ", "]\x5d"
+        return "\"[escape_json $val]\""
     }
 
     proc extract_ids {json key} {

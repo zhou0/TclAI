@@ -10,3 +10,4 @@
 ::msgcat::mcset zh_cn "Save Prompts" "保存提示词"
 ::msgcat::mcset zh_cn "Language" "语言"
 ::msgcat::mcset zh_cn "Send" "发送"
+::msgcat::mcset zh_cn "Show JSON" "显示 JSON"

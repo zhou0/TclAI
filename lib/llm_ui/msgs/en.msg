@@ -10,3 +10,4 @@
 ::msgcat::mcset en "Save Prompts" "Save Prompts"
 ::msgcat::mcset en "Language" "Language"
 ::msgcat::mcset en "Send" "Send"
+::msgcat::mcset en "Show JSON" "Show JSON"

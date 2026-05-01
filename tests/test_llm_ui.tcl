@@ -73,3 +73,15 @@ set s_obj ::.test_settings:obj
 puts "SettingsWidget: OK"
 
 puts "--- UI Tests Passed ---"
+
+# 3. Test Preference Saving
+puts "Testing Preference Saving..."
+$s_obj SavePreferences language "zh_cn"
+if {[file exists "preference.json"]} {
+    set fh [open "preference.json" r]; set json [read $fh]; close $fh
+    puts "preference.json content: $json"
+    assert {[string match "*zh_cn*" $json]} "preference saved"
+} else {
+    error "preference.json was not created"
+}
+puts "Preference Saving: OK"

@@ -6,9 +6,33 @@ package require llm_ui
 package require ttk::m3::navrail
 package require msgcat
 
+# Set native theme based on OS
+proc SetNativeTheme {} {
+    global tcl_platform
+    set theme "clam"
+    set available [ttk::style theme names]
+
+    if {$tcl_platform(os) eq "Darwin"} {
+        if {[lsearch -exact $available "aqua"] != -1} { set theme "aqua" }
+    } elseif {$tcl_platform(platform) eq "windows"} {
+        if {[lsearch -exact $available "vista"] != -1} {
+            set theme "vista"
+        } elseif {[lsearch -exact $available "xpnative"] != -1} {
+            set theme "xpnative"
+        }
+    } else {
+        if {[lsearch -exact $available "gtk1"] != -1} {
+            set theme "gtk1"
+        } elseif {[lsearch -exact $available "clam"] != -1} {
+            set theme "clam"
+        }
+    }
+
+    catch {ttk::style theme use $theme}
+}
+
 # Detect system locale and map to supported languages
 proc DetectSystemLocale {} {
-    # msgcat::mclocale returns the system locale (e.g., zh_cn, en_us)
     set locale [string tolower [::msgcat::mclocale]]
     if {[string match "zh_cn*" $locale] || [string match "zh-cn*" $locale]} {
         return "zh_cn"
@@ -38,14 +62,16 @@ if {$locale eq ""} {
 ::msgcat::mclocale $locale
 ::llm_ui::logic::mcload_msgs
 
+SetNativeTheme
+
 wm title . "TTK LLM Frontend"
 wm geometry . 800x600
 
 # Create Navigation Rail
 ttk::m3::navrail .nav
 .nav add_item toggle "☰" ""
-.nav add_item chat "💬" [::msgcat::mc "Chat"]
-.nav add_item settings "⚙️" [::msgcat::mc "Settings"]
+.nav add_item chat "💬" [::llm_ui::logic::mc "Chat"]
+.nav add_item settings "⚙️" [::llm_ui::logic::mc "Settings"]
 
 # Main container for screens
 ttk::frame .main
@@ -71,8 +97,9 @@ proc ShowScreen {id} {
 
 bind .nav <<NavRailSelected>> { ShowScreen [%W get_selection] }
 bind . <<LanguageChanged>> {
-    .nav itemconfigure chat -text [::msgcat::mc "Chat"]
-    .nav itemconfigure settings -text [::msgcat::mc "Settings"]
+    .nav itemconfigure chat -text [::llm_ui::logic::mc "Chat"]
+    .nav itemconfigure settings -text [::llm_ui::logic::mc "Settings"]
+    # Force a redraw of the navrail to update labels if expanded
     .nav configure -state [.nav cget -state]
 }
 

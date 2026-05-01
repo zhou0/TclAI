@@ -130,7 +130,7 @@ namespace eval ::llm_ui::logic {
         return "\x7b[join $items ", "]\x7d"
     }
 
-    proc json_gen_providers {providers_data default_prompt} {
+    proc json_gen_providers {providers_data} {
         set p_list {}
         foreach p $providers_data {
             set items {}
@@ -153,7 +153,7 @@ namespace eval ::llm_ui::logic {
             }
             lappend p_list "\x7b[join $items ", "]\x7d"
         }
-        return "\x7b\"default_prompt\": \"[escape_json $default_prompt]\", \"providers\": \x5b[join $p_list ", "]\x5d\x7d"
+        return "\x7b\"providers\": \x5b[join $p_list ", "]\x5d\x7d"
     }
 
     proc json_gen_history {messages} {

@@ -2,6 +2,7 @@ package provide llm_ui 0.1
 
 package require Tk
 package require llm_ui::logic
+package require ttk::messagebox
 
 namespace eval ::llm_ui {
     oo::class create ChatWidgetClass {
@@ -65,11 +66,15 @@ namespace eval ::llm_ui {
 
         method CallAPI {} {
             if {$options(-api_key) eq "" && ![string match "*localhost*" $options(-base_url)]} {
-                my AppendHistory "System" "Error: API Key is missing. Please set it in Settings."
+                set err_msg [::llm_ui::logic::mc "Error: API Key is missing. Please set it in Settings."]
+                my AppendHistory "System" $err_msg
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Settings Error"] $err_msg "error"
                 return
             }
             if {$options(-model) eq ""} {
-                my AppendHistory "System" "Error: No model selected."
+                set err_msg [::llm_ui::logic::mc "Error: No model selected."]
+                my AppendHistory "System" $err_msg
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Model Error"] $err_msg "error"
                 return
             }
 
@@ -102,7 +107,9 @@ namespace eval ::llm_ui {
                 set last_raw_json $data
 
                 if {$ncode != 200} {
-                    my UpdateLastHistory "Error: $ncode - $data"
+                    set err_msg "Error: $ncode - $data"
+                    my UpdateLastHistory $err_msg
+                    ::ttk::messagebox::show $w [::llm_ui::logic::mc "API Error"] $err_msg "error"
                 } else {
                     set content ""
                     set pattern "\"content\":\\s*\"((?:\[^\"\\\\]|\\\\.)*)\""
@@ -119,12 +126,16 @@ namespace eval ::llm_ui {
                              lappend messages [list role "assistant" content $content]
                              my SaveHistory
                         } else {
-                             my UpdateLastHistory "Error: Could not parse response content."
+                             set err_msg [::llm_ui::logic::mc "Error: Could not parse response content."]
+                             my UpdateLastHistory $err_msg
+                             ::ttk::messagebox::show $w [::llm_ui::logic::mc "Parse Error"] $err_msg "error"
                         }
                     }
                 }
             } err]} {
-                my UpdateLastHistory "Error: $err"
+                set err_msg "Error: $err"
+                my UpdateLastHistory $err_msg
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Connection Error"] $err_msg "error"
             }
         }
 
@@ -171,8 +182,9 @@ namespace eval ::llm_ui {
         }
 
         method LoadHistory {} {
-            if {[file exists "history.json"]} {
-                set fh [open "history.json" r]
+            set hist_file [file join "data" "history.json"]
+            if {[file exists $hist_file]} {
+                set fh [open $hist_file r]
                 set json [read $fh]
                 close $fh
                 if {![catch {set data [::llm_ui::logic::json_parse $json]}]} {
@@ -190,7 +202,8 @@ namespace eval ::llm_ui {
         }
 
         method SaveHistory {} {
-            set fh [open "history.json" w]
+            set hist_file [file join "data" "history.json"]
+            set fh [open $hist_file w]
             set m_list {}
             foreach m $messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             puts $fh "\[[join $m_list ,]\]"
@@ -239,8 +252,9 @@ namespace eval ::llm_ui {
         }
 
         method LoadPreferences {} {
-            if {[file exists "preference.json"]} {
-                set fh [open "preference.json" r]
+            set pref_file [file join "settings" "preference.json"]
+            if {[file exists $pref_file]} {
+                set fh [open $pref_file r]
                 set json [read $fh]
                 close $fh
                 if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
@@ -256,7 +270,6 @@ namespace eval ::llm_ui {
                     [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
                     [list name "SiliconFlow" base_url "https://api.siliconflow.cn/v1" api_key "" models {}] \
                     [list name "Nvidia" base_url "https://integrate.api.nvidia.com/v1" api_key "" models {}] \
-                    [list name "Cerebras" base_url "https://api.cerebras.ai/v1" api_key "" models {}] \
                     [list name "OpenRouter" base_url "https://openrouter.ai/api/v1" api_key "" models {}] \
                     [list name "Local (Ollama/LM Studio)" base_url "http://localhost:11434/v1" api_key "" models {}] \
                 ]
@@ -264,9 +277,10 @@ namespace eval ::llm_ui {
         }
 
         method SavePreferences {args} {
+            set pref_file [file join "settings" "preference.json"]
             set d {}
-            if {[file exists "preference.json"]} {
-                set fh [open "preference.json" r]; set json [read $fh]; close $fh
+            if {[file exists $pref_file]} {
+                set fh [open $pref_file r]; set json [read $fh]; close $fh
                 catch {set d [::llm_ui::logic::json_parse $json]}
             }
             foreach {k v} $args { dict set d $k $v }
@@ -282,7 +296,7 @@ namespace eval ::llm_ui {
             if {$lc_model eq "" && [dict exists $d lastchat model]} { set lc_model [dict get $d lastchat model] }
             dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model]]
 
-            set fh [open "preference.json" w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
+            set fh [open $pref_file w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
         }
 
         method FindProviderIdx {name} {
@@ -463,7 +477,10 @@ namespace eval ::llm_ui {
                 "User-Agent" "Tcl/Tk LLM Client" \
             ]
             if {[catch {http::geturl $url -headers $headers -timeout 10000} token]} {
-                my UpdateModelList {}; return
+                set err_msg "Failed to fetch models: $token"
+                my UpdateModelList {}
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Fetch Error"] $err_msg "error"
+                return
             }
             set res [encoding convertfrom utf-8 [http::data $token]]; http::cleanup $token
             set ids [::llm_ui::logic::extract_ids $res "id"]

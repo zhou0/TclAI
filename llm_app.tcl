@@ -44,8 +44,9 @@ proc DetectSystemLocale {} {
 
 # Load preferences
 set locale ""
-if {[file exists "preference.json"]} {
-    set fh [open "preference.json" r]
+set pref_file [file join $script_dir settings preference.json]
+if {[file exists $pref_file]} {
+    set fh [open $pref_file r]
     set json [read $fh]
     close $fh
     if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {

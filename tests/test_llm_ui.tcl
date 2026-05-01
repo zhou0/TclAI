@@ -15,6 +15,7 @@ namespace eval ttk {
     proc entry {path args} { proc ::$path {args} {}; return $path }
     proc combobox {path args} { proc ::$path {args} {}; return $path }
     namespace eval style { proc configure {args} {}; proc lookup {args} { return "" } }
+    namespace eval messagebox { proc show {args} {} }
 }
 
 # Override package to handle Tk and tls in headless env
@@ -22,7 +23,7 @@ rename package _original_package
 proc package {args} {
     set cmd [lindex $args 0]
     set pkg [lindex $args 1]
-    if {$cmd eq "require" && ($pkg eq "Tk" || $pkg eq "tls")} { return 1 }
+    if {$cmd eq "require" && ($pkg eq "Tk" || $pkg eq "tls" || $pkg eq "ttk::messagebox")} { return 1 }
     return [uplevel 1 _original_package $args]
 }
 
@@ -55,6 +56,10 @@ proc assert {condition msg} {
     }
 }
 
+# Ensure directories exist for test
+file mkdir settings
+file mkdir data
+
 puts "--- Starting UI Test Suite ---"
 
 # 1. Test ChatWidget Logic (Headless)
@@ -77,11 +82,12 @@ puts "--- UI Tests Passed ---"
 # 3. Test Preference Saving
 puts "Testing Preference Saving..."
 $s_obj SavePreferences language "zh_cn"
-if {[file exists "preference.json"]} {
-    set fh [open "preference.json" r]; set json [read $fh]; close $fh
+set pref_file [file join "settings" "preference.json"]
+if {[file exists $pref_file]} {
+    set fh [open $pref_file r]; set json [read $fh]; close $fh
     puts "preference.json content: $json"
     assert {[string match "*zh_cn*" $json]} "preference saved"
 } else {
-    error "preference.json was not created"
+    error "preference.json was not created in settings/"
 }
 puts "Preference Saving: OK"

@@ -71,9 +71,7 @@ namespace eval ::llm_ui {
                 set fh [open "history.json" r]
                 set json [read $fh]
                 close $fh
-                if {[catch {set loaded [::llm_ui::logic::json_parse $json]} err]} {
-                    set messages {}
-                } else {
+                if {![catch {set loaded [::llm_ui::logic::json_parse $json]}]} {
                     set messages $loaded
                     foreach m $messages {
                         set role "User"
@@ -171,7 +169,7 @@ namespace eval ::llm_ui {
     }
 
     oo::class create SettingsWidgetClass {
-        variable w chatW providers_data current_p_name cb_p def_p_text sys_p_text cb_lang default_prompt
+        variable w chatW providers_data current_p_name cb_p cb_m def_p_text sys_p_text cb_lang default_prompt lastchat
 
         constructor {path chatWidget args} {
             set w $path
@@ -179,9 +177,11 @@ namespace eval ::llm_ui {
             set providers_data {}
             set current_p_name ""
             set default_prompt "You are a helpful assistant."
+            set lastchat {provider "" model ""}
 
             ttk::frame $w
             my LoadProviders
+            my LoadLastChat
             my BuildUI
         }
 
@@ -208,6 +208,26 @@ namespace eval ::llm_ui {
         method SaveProviders {} {
             set fh [open "providers.json" w]
             puts $fh [::llm_ui::logic::json_gen_providers $providers_data $default_prompt]
+            close $fh
+        }
+
+        method LoadLastChat {} {
+            if {[file exists "lastchat.json"]} {
+                set fh [open "lastchat.json" r]
+                set json [read $fh]
+                close $fh
+                if {![catch {set data [::llm_ui::logic::json_parse $json]}]} {
+                    set lastchat $data
+                }
+            }
+        }
+
+        method SaveLastChat {} {
+            set provider $current_p_name
+            set model [$cb_m get]
+            set data [list provider $provider model $model]
+            set fh [open "lastchat.json" w]
+            puts $fh [::llm_ui::logic::json_gen_dict $data]
             close $fh
         }
 
@@ -254,7 +274,7 @@ namespace eval ::llm_ui {
             ttk::button $f.btn_key -text [::llm_ui::logic::mc "Change API Key"] -command [list [self] ChangeKey]
             grid $f.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
-            ttk::label $f.lm -text [::llm_ui::logic::mc "Model"]
+            ttk::label $f.lm -text [::msgcat::mc "Model"]
             set cb_m [ttk::combobox $f.cbm -state readonly]
             grid $f.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
@@ -283,7 +303,14 @@ namespace eval ::llm_ui {
             grid columnconfigure $f 1 -weight 1
             grid rowconfigure $f [expr {$row-1}] -weight 1
             grid rowconfigure $f [expr {$row-3}] -weight 1
-            if {[llength $p_names] > 0} { $cb_p current 0; after idle [list [self] OnProviderSelected $cb_p] }
+
+            set last_p [dict get $lastchat provider]
+            set pidx [lsearch -exact $p_names $last_p]
+            if {$pidx == -1} { set pidx 0 }
+            if {[llength $p_names] > 0} {
+                $cb_p current $pidx
+                after idle [list [self] OnProviderSelected $cb_p]
+            }
         }
 
         method UpdateTranslations {} {
@@ -293,7 +320,7 @@ namespace eval ::llm_ui {
             $f.lp configure -text [::llm_ui::logic::mc "Provider"]
             $f.lk configure -text [::llm_ui::logic::mc "API Key"]
             $f.btn_key configure -text [::llm_ui::logic::mc "Change API Key"]
-            $f.lm configure -text [::llm_ui::logic::mc "Model"]
+            $f.lm configure -text [::msgcat::mc "Model"]
             $f.btn_refresh configure -text [::llm_ui::logic::mc "Refresh Models"]
             $f.ldp configure -text [::llm_ui::logic::mc "Default Prompt"]
             $f.lsp configure -text [::llm_ui::logic::mc "System Prompt"]
@@ -306,7 +333,7 @@ namespace eval ::llm_ui {
             if {$lang eq "简体中文"} { set locale zh_cn } elseif {$lang eq "繁體中文"} { set locale zh_tw }
             ::msgcat::mclocale $locale
             ::llm_ui::logic::mcload_msgs
-            set fh [open "preference.json" w]; puts $fh "\x7b\"language\": \"$locale\"\x7d"; close $fh
+            set fh [open "preference.json" w]; puts $fh [::llm_ui::logic::json_gen_dict [list language $locale]]; close $fh
             my UpdateTranslations
             $chatW UpdateTranslations
             event generate . <<LanguageChanged>>
@@ -323,6 +350,7 @@ namespace eval ::llm_ui {
             $w.config.ek delete 0 end; $w.config.ek insert 0 $key
             $chatW configure -provider $current_p_name -base_url $url -api_key $key -system_prompt $default_prompt
             my RefreshModels
+            my SaveLastChat
         }
 
         method ChangeKey {} {
@@ -342,7 +370,7 @@ namespace eval ::llm_ui {
         method SavePrompts {} {
             set default_prompt [string trim [$def_p_text get 1.0 end]]
             set sys_prompt [string trim [$sys_p_text get 1.0 end]]
-            set m_name [$w.config.cbm get]
+            set m_name [$cb_m get]
             set p_idx [my FindProviderIdx $current_p_name]
             if {$p_idx != -1} {
                 set p [lindex $providers_data $p_idx]
@@ -410,12 +438,16 @@ namespace eval ::llm_ui {
         }
 
         method UpdateModelList {models} {
-            $w.config.cbm configure -values $models
+            $cb_m configure -values $models
             if {[llength $models] > 0} {
-                set current [$chatW cget -model]
+                set current [dict get $lastchat model]
                 set midx [lsearch -exact $models $current]
-                $w.config.cbm current [expr {$midx != -1 ? $midx : 0}]
-                my OnModelSelected $w.config.cbm
+                if {$midx == -1} {
+                    set current [$chatW cget -model]
+                    set midx [lsearch -exact $models $current]
+                }
+                $cb_m current [expr {$midx != -1 ? $midx : 0}]
+                my OnModelSelected $cb_m
             }
         }
 
@@ -431,7 +463,7 @@ namespace eval ::llm_ui {
                 set id ""; set sp ""
                 if {[llength $m] > 1} {
                     set midx [lsearch -exact $m "id"]
-                    if {$midx != -1} { set id [lindex $m [expr {$midx + 1}]] }
+                    if {$midx != -1} { id [lindex $m [expr {$midx + 1}]] }
                     set sidx [lsearch -exact $m "system_prompt"]
                     if {$sidx != -1} { set sp [lindex $m [expr {$sidx + 1}]] }
                 } else { set id $m }
@@ -439,21 +471,9 @@ namespace eval ::llm_ui {
             }
             $sys_p_text delete 1.0 end; $sys_p_text insert 1.0 $prompt
             $chatW configure -system_prompt $prompt
+            my SaveLastChat
         }
         export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SavePrompts UpdateTranslations
-    }
-
-    proc ChatWidget {path args} {
-        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
-        rename $path ::$path:widget
-        proc ::$path {cmd args} [format {
-            set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
-                return [$obj $cmd {*}$args]
-            }
-            return [::%s:widget $cmd {*}$args]
-        } $path $path]
-        return $path
     }
 
     proc SettingsWidget {path chatWidget args} {

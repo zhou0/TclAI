@@ -40,7 +40,7 @@ namespace eval ::llm_ui::logic {
         if {$i >= [string length $json]} { return "" }
         set char [string index $json $i]
         if {$char eq "\x7b"} { return [json_parse_obj $json i] }
-        if {$char eq "\x5b"} { return [json_parse_arr $json i] }
+        if {$char eq "\["} { return [json_parse_arr $json i] }
         if {$char eq "\""} { return [json_parse_str $json i] }
         return [json_parse_lit $json i]
     }
@@ -120,6 +120,14 @@ namespace eval ::llm_ui::logic {
         }
         incr i
         return ""
+    }
+
+    proc json_gen_dict {data} {
+        set items {}
+        foreach {k v} $data {
+            lappend items "\"$k\": \"[escape_json $v]\""
+        }
+        return "\x7b[join $items ", "]\x7d"
     }
 
     proc json_gen_providers {providers_data default_prompt} {

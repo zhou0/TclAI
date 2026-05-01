@@ -6,8 +6,20 @@ package require llm_ui
 package require ttk::m3::navrail
 package require msgcat
 
+# Detect system locale and map to supported languages
+proc DetectSystemLocale {} {
+    set locale [::msgcat::mclocale]
+    set locale [string tolower $locale]
+    if {[string match "zh_cn*" $locale] || [string match "zh-cn*" $locale]} {
+        return "zh_cn"
+    } elseif {[string match "zh_tw*" $locale] || [string match "zh-tw*" $locale] || [string match "zh_hk*" $locale] || [string match "zh-hk*" $locale]} {
+        return "zh_tw"
+    }
+    return "en"
+}
+
 # Load preferences
-set locale en
+set locale ""
 if {[file exists "preference.json"]} {
     set fh [open "preference.json" r]
     set json [read $fh]
@@ -16,6 +28,11 @@ if {[file exists "preference.json"]} {
         foreach {k v} $d { if {$k eq "language"} { set locale $v } }
     }
 }
+
+if {$locale eq ""} {
+    set locale [DetectSystemLocale]
+}
+
 ::msgcat::mclocale $locale
 ::llm_ui::logic::mcload_msgs
 

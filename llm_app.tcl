@@ -8,8 +8,8 @@ package require msgcat
 
 # Detect system locale and map to supported languages
 proc DetectSystemLocale {} {
-    set locale [::msgcat::mclocale]
-    set locale [string tolower $locale]
+    # msgcat::mclocale returns the system locale (e.g., zh_cn, en_us)
+    set locale [string tolower [::msgcat::mclocale]]
     if {[string match "zh_cn*" $locale] || [string match "zh-cn*" $locale]} {
         return "zh_cn"
     } elseif {[string match "zh_tw*" $locale] || [string match "zh-tw*" $locale] || [string match "zh_hk*" $locale] || [string match "zh-hk*" $locale]} {
@@ -25,7 +25,9 @@ if {[file exists "preference.json"]} {
     set json [read $fh]
     close $fh
     if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
-        foreach {k v} $d { if {$k eq "language"} { set locale $v } }
+        if {[dict exists $d language]} {
+            set locale [dict get $d language]
+        }
     }
 }
 

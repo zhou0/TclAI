@@ -463,7 +463,7 @@ namespace eval ::llm_ui {
                 set id ""; set sp ""
                 if {[llength $m] > 1} {
                     set midx [lsearch -exact $m "id"]
-                    if {$midx != -1} { id [lindex $m [expr {$midx + 1}]] }
+                    if {$midx != -1} { set id [lindex $m [expr {$midx + 1}]] }
                     set sidx [lsearch -exact $m "system_prompt"]
                     if {$sidx != -1} { set sp [lindex $m [expr {$sidx + 1}]] }
                 } else { set id $m }

@@ -5,7 +5,7 @@ package require llm_ui::logic
 
 namespace eval ::llm_ui {
     oo::class create ChatWidgetClass {
-        variable w history input send options messages last_raw_json
+        variable w history input send options messages last_raw_json last_assistant_marker
 
         constructor {path args} {
             set w $path
@@ -13,10 +13,11 @@ namespace eval ::llm_ui {
             set input ""
             set messages {}
             set last_raw_json ""
+            set last_assistant_marker ""
             set options(-provider) ""
             set options(-base_url) ""
             set options(-api_key) ""
-            set options(-model) "gpt-4o-mini"
+            set options(-model) ""
             set options(-system_prompt) "You are a helpful assistant."
 
             ttk::frame $w
@@ -54,6 +55,9 @@ namespace eval ::llm_ui {
 
         method AppendHistory {role msg} {
             $history configure -state normal
+            if {$role eq "Assistant" && $msg eq "..."} {
+                set last_assistant_marker [$history index "end - 1c"]
+            }
             $history insert end "$role: $msg\n\n"
             $history configure -state disabled
             $history yview end
@@ -62,6 +66,10 @@ namespace eval ::llm_ui {
         method CallAPI {} {
             if {$options(-api_key) eq "" && ![string match "*localhost*" $options(-base_url)]} {
                 my AppendHistory "System" "Error: API Key is missing. Please set it in Settings."
+                return
+            }
+            if {$options(-model) eq ""} {
+                my AppendHistory "System" "Error: No model selected."
                 return
             }
 
@@ -73,14 +81,19 @@ namespace eval ::llm_ui {
             foreach m $full_messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             set messages_json "\[[join $m_list ,]\]"
 
-            set body "\x7b\"model\": \"$options(-model)\", \"messages\": $messages_json, \"stream\": false, \"max_tokens\": 1024\x7d"
+            set body "\x7b\"model\": \"$options(-model)\", \"messages\": $messages_json, \"stream\": false, \"max_tokens\": 1024, \"temperature\": 1, \"top_p\": 1\x7d"
 
-            set headers [list "Content-Type" "application/json" "Authorization" "Bearer $options(-api_key)"]
+            set headers [list \
+                "Content-Type" "application/json" \
+                "Accept" "application/json" \
+                "Authorization" "Bearer $options(-api_key)" \
+                "User-Agent" "Tcl/Tk LLM Client" \
+            ]
 
             my AppendHistory "Assistant" "..."
 
             if {[catch {
-                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -timeout 30000]
+                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -timeout 60000]
                 set status [http::status $token]
                 set ncode [http::ncode $token]
                 set data [encoding convertfrom utf-8 [http::data $token]]
@@ -99,7 +112,15 @@ namespace eval ::llm_ui {
                          lappend messages [list role "assistant" content $content]
                          my SaveHistory
                     } else {
-                        my UpdateLastHistory "Error: Could not parse response content."
+                        set pattern "\"text\":\\s*\"((?:\[^\"\\\\]|\\\\.)*)\""
+                        if {[regexp $pattern $data match content]} {
+                             set content [::llm_ui::logic::unescape_json $content]
+                             my UpdateLastHistory $content
+                             lappend messages [list role "assistant" content $content]
+                             my SaveHistory
+                        } else {
+                             my UpdateLastHistory "Error: Could not parse response content."
+                        }
                     }
                 }
             } err]} {
@@ -130,10 +151,14 @@ namespace eval ::llm_ui {
 
         method UpdateLastHistory {msg} {
             $history configure -state normal
-            set start [$history index "end - 3l"]
-            set end [$history index "end - 1c"]
-            $history delete $start $end
-            $history insert end "Assistant: $msg\n"
+            if {$last_assistant_marker ne ""} {
+                set start $last_assistant_marker
+                set end "end"
+                $history delete $start $end
+                $history insert end "Assistant: $msg\n"
+            } else {
+                $history insert end "Assistant: $msg\n"
+            }
 
             set btn_path "$history.btn_[clock clicks]"
             ttk::button $btn_path -text [::llm_ui::logic::mc "Show JSON"] -command [list [self] ShowJSON $last_raw_json] -padding 2
@@ -142,6 +167,7 @@ namespace eval ::llm_ui {
 
             $history configure -state disabled
             $history yview end
+            set last_assistant_marker ""
         }
 
         method LoadHistory {} {
@@ -431,13 +457,16 @@ namespace eval ::llm_ui {
 
         method FetchModels {base_url} {
             set url "$base_url/models"
-            set headers [list "Authorization" "Bearer [$chatW cget -api_key]"]
-            if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
-                my UpdateModelList [list "gpt-4o-mini" "gpt-4o"]; return
+            set headers [list \
+                "Authorization" "Bearer [$chatW cget -api_key]" \
+                "Accept" "application/json" \
+                "User-Agent" "Tcl/Tk LLM Client" \
+            ]
+            if {[catch {http::geturl $url -headers $headers -timeout 10000} token]} {
+                my UpdateModelList {}; return
             }
             set res [encoding convertfrom utf-8 [http::data $token]]; http::cleanup $token
             set ids [::llm_ui::logic::extract_ids $res "id"]
-            if {[llength $ids] == 0} { set ids [list "gpt-4o-mini" "gpt-4o"] }
             set p_idx [my FindProviderIdx $current_p_name]
             if {$p_idx != -1} {
                 set p [lindex $providers_data $p_idx]
@@ -462,6 +491,10 @@ namespace eval ::llm_ui {
                 }
                 $cb_m current [expr {$midx != -1 ? $midx : 0}]
                 my OnModelSelected $cb_m
+            } else {
+                $cb_m set ""
+                $chatW configure -model ""
+                my SavePreferences
             }
         }
 

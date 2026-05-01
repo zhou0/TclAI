@@ -146,6 +146,16 @@ namespace eval ::llm_ui::logic {
         set pattern "\"$key\":\\s*\"(\x5b^\x22\x5d+)\""
         set matches [regexp -all -inline $pattern $json]
         foreach {full match} $matches { lappend ids $match }
+
+        if {[llength $ids] == 0} {
+             set pattern "\"(\x5b^\x22\x5d+)\""
+             set matches [regexp -all -inline $pattern $json]
+             foreach {full match} $matches {
+                if {$match ne "id" && $match ne "object" && $match ne "models" && $match ne "data"} {
+                    lappend ids $match
+                }
+             }
+        }
         return [lsort -unique $ids]
     }
 }

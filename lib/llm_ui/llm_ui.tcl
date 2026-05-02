@@ -1,27 +1,30 @@
 package provide llm_ui 0.1
 
-package require TclOO
 package require Tk
 package require llm_ui::logic
-package require msgcat
+package require ttk::messagebox
 
 namespace eval ::llm_ui {
     oo::class create ChatWidgetClass {
-        variable w history input send options messages
+        variable w history input send options messages last_raw_json last_assistant_marker
 
         constructor {path args} {
             set w $path
             set history ""
             set input ""
             set messages {}
+            set last_raw_json ""
+            set last_assistant_marker ""
             set options(-provider) ""
             set options(-base_url) ""
             set options(-api_key) ""
-            set options(-model) "gpt-4o-mini"
+            set options(-model) ""
             set options(-system_prompt) "You are a helpful assistant."
 
             ttk::frame $w
             set history [text $w.history -height 15 -state disabled -wrap word]
+            $history tag configure right_aligned -justify right
+
             set input [text $w.input -height 3 -wrap word]
             set send [ttk::button $w.send -text [::llm_ui::logic::mc "Send"] -command [list [self] SendMessage]]
 
@@ -55,31 +58,147 @@ namespace eval ::llm_ui {
 
         method AppendHistory {role msg} {
             $history configure -state normal
+            if {$role eq "Assistant" && $msg eq "..."} {
+                set last_assistant_marker [$history index "end - 1c"]
+            }
             $history insert end "$role: $msg\n\n"
             $history configure -state disabled
-            $history see end
+            $history yview end
         }
 
-        method SaveHistory {} {
-            set fh [open "history.json" w]
-            puts $fh [::llm_ui::logic::json_gen_history $messages]
-            close $fh
+        method CallAPI {} {
+            if {$options(-api_key) eq "" && ![string match "*localhost*" $options(-base_url)]} {
+                set err_msg [::llm_ui::logic::mc "Error: API Key is missing. Please set it in Settings."]
+                my AppendHistory "System" $err_msg
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Settings Error"] $err_msg "error"
+                return
+            }
+            if {$options(-model) eq ""} {
+                set err_msg [::llm_ui::logic::mc "Error: No model selected."]
+                my AppendHistory "System" $err_msg
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Model Error"] $err_msg "error"
+                return
+            }
+
+            set url "$options(-base_url)/chat/completions"
+            set sys_msg [list role "system" content $options(-system_prompt)]
+            set full_messages [linsert $messages 0 $sys_msg]
+
+            set m_list {}
+            foreach m $full_messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
+            set messages_json "\[[join $m_list ,]\]"
+
+            set body "\x7b\"model\": \"$options(-model)\", \"messages\": $messages_json, \"stream\": false, \"max_tokens\": 1024, \"temperature\": 1, \"top_p\": 1\x7d"
+
+            set headers [list \
+                "Content-Type" "application/json" \
+                "Accept" "application/json" \
+                "Authorization" "Bearer $options(-api_key)" \
+                "User-Agent" "Tcl/Tk LLM Client" \
+            ]
+
+            my AppendHistory "Assistant" "..."
+
+            if {[catch {
+                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -timeout 60000]
+                set status [http::status $token]
+                set ncode [http::ncode $token]
+                set data [encoding convertfrom utf-8 [http::data $token]]
+                http::cleanup $token
+
+                set last_raw_json $data
+
+                if {$ncode != 200} {
+                    set err_msg "Error: $ncode - $data"
+                    my UpdateLastHistory $err_msg
+                    ::ttk::messagebox::show $w [::llm_ui::logic::mc "API Error"] $err_msg "error"
+                } else {
+                    set content ""
+                    set pattern "\"content\":\\s*\"((?:\[^\"\\\\]|\\\\.)*)\""
+                    if {[regexp $pattern $data match content]} {
+                         set content [::llm_ui::logic::unescape_json $content]
+                         my UpdateLastHistory $content
+                         lappend messages [list role "assistant" content $content]
+                         my SaveHistory
+                    } else {
+                        set pattern "\"text\":\\s*\"((?:\[^\"\\\\]|\\\\.)*)\""
+                        if {[regexp $pattern $data match content]} {
+                             set content [::llm_ui::logic::unescape_json $content]
+                             my UpdateLastHistory $content
+                             lappend messages [list role "assistant" content $content]
+                             my SaveHistory
+                        } else {
+                             set err_msg [::llm_ui::logic::mc "Error: Could not parse response content."]
+                             my UpdateLastHistory $err_msg
+                             ::ttk::messagebox::show $w [::llm_ui::logic::mc "Parse Error"] $err_msg "error"
+                        }
+                    }
+                }
+            } err]} {
+                set err_msg "Error: $err"
+                my UpdateLastHistory $err_msg
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Connection Error"] $err_msg "error"
+            }
+        }
+
+        method ShowJSON {json} {
+            set top .json_popup
+            if {[winfo exists $top]} { destroy $top }
+            toplevel $top
+            wm title $top "Raw JSON Response"
+            wm geometry $top 600x400
+            set txt [text $top.t -wrap none -font {Courier 10}]
+            set sbx [ttk::scrollbar $top.sbx -orient horizontal -command [list $txt xview]]
+            set sby [ttk::scrollbar $top.sby -orient vertical -command [list $txt yview]]
+            $txt configure -xscrollcommand [list $sbx set] -yscrollcommand [list $sby set]
+
+            grid $txt -row 0 -column 0 -sticky nsew
+            grid $sby -row 0 -column 1 -sticky ns
+            grid $sbx -row 1 -column 0 -sticky ew
+            grid rowconfigure $top 0 -weight 1
+            grid columnconfigure $top 0 -weight 1
+
+            $txt insert 1.0 [::llm_ui::logic::json_pretty $json]
+            $txt configure -state disabled
+        }
+
+        method UpdateLastHistory {msg} {
+            $history configure -state normal
+            if {$last_assistant_marker ne ""} {
+                set start $last_assistant_marker
+                set end "end"
+                $history delete $start $end
+                $history insert end "Assistant: $msg\n"
+            } else {
+                $history insert end "Assistant: $msg\n"
+            }
+
+            set btn_path "$history.btn_[clock clicks]"
+            ttk::button $btn_path -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $last_raw_json] -padding 2
+
+            # Apply right alignment by tagging the line where the window is created
+            set win_idx [$history index "end - 1c"]
+            $history window create end -window $btn_path -padx 5
+            $history tag add right_aligned "$win_idx linestart" "end - 1c"
+            $history insert end "\n\n"
+
+            $history configure -state disabled
+            $history yview end
+            set last_assistant_marker ""
         }
 
         method LoadHistory {} {
-            if {[file exists "history.json"]} {
-                set fh [open "history.json" r]
+            set hist_file [file join "data" "history.json"]
+            if {[file exists $hist_file]} {
+                set fh [open $hist_file r]
                 set json [read $fh]
                 close $fh
-                if {[catch {set loaded [::llm_ui::logic::json_parse $json]} err]} {
-                    set messages {}
-                } else {
-                    set messages $loaded
+                if {![catch {set data [::llm_ui::logic::json_parse $json]}]} {
+                    set messages $data
                     foreach m $messages {
-                        set role "User"
-                        set content ""
+                        set role "Unknown"; set content ""
                         foreach {k v} $m {
-                            if {$k eq "role" && $v eq "assistant"} { set role "AI" }
+                            if {$k eq "role"} { set role [string totitle $v] }
                             if {$k eq "content"} { set content $v }
                         }
                         my AppendHistory $role $content
@@ -88,73 +207,26 @@ namespace eval ::llm_ui {
             }
         }
 
-        method CallAPI {} {
-            set url "[my cget -base_url]/chat/completions"
-            set key [my cget -api_key]
-            set model [my cget -model]
-            set system_prompt [my cget -system_prompt]
-
-            if {$url eq "/chat/completions"} {
-                my AppendHistory "Error" "No provider configured."
-                return
-            }
-
-            set full_messages [linsert $messages 0 [list role "system" content $system_prompt]]
-
-            set msg_json_list {}
-            foreach m $full_messages {
-                set r ""
-                set c ""
-                foreach {mk mv} $m { if {$mk eq "role"} { set r $mv } elseif {$mk eq "content"} { set c $mv } }
-                lappend msg_json_list "\x7b\"role\":\"$r\",\"content\":\"[::llm_ui::logic::escape_json $c]\"\x7d"
-            }
-            set body "\x7b\"model\":\"$model\",\"messages\":\x5b[join $msg_json_list ", "]\x5d\x7d"
-
-            set headers [list "Content-Type" "application/json" "Authorization" "Bearer $key"]
-
-            if {[catch {http::geturl $url -query [encoding convertto utf-8 $body] -headers $headers -timeout 30000} token]} {
-                my AppendHistory "Error" $token
-                return
-            }
-
-            set status [http::status $token]
-            set code [http::ncode $token]
-            set data [encoding convertfrom utf-8 [http::data $token]]
-            http::cleanup $token
-
-            if {$status ne "ok" || $code != 200} {
-                my AppendHistory "Error" "HTTP $code: $data"
-                return
-            }
-
-            set res_dict [::llm_ui::logic::json_parse $data]
-            set choices {}
-            foreach {rk rv} $res_dict { if {$rk eq "choices"} { set choices $rv; break } }
-            if {[llength $choices] > 0} {
-                set first [lindex $choices 0]
-                set msg_obj {}
-                foreach {ck cv} $first { if {$ck eq "message"} { set msg_obj $cv; break } }
-                set content ""
-                foreach {mk mv} $msg_obj { if {$mk eq "content"} { set content $mv; break } }
-                my AppendHistory "AI" $content
-                lappend messages [list role "assistant" content $content]
-                my SaveHistory
-            }
-        }
-
-        method cget {opt} {
-            if {[info exists options($opt)]} { return $options($opt) }
-            return ""
+        method SaveHistory {} {
+            set data_dir "data"
+            if {![file isdirectory $data_dir]} { file mkdir $data_dir }
+            set hist_file [file join $data_dir "history.json"]
+            set fh [open $hist_file w]
+            set m_list {}
+            foreach m $messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
+            puts $fh "\[[join $m_list ,]\]"
+            close $fh
         }
 
         method configure {args} {
             if {[llength $args] == 0} { return [array get options] }
             if {[llength $args] == 1} { return $options([lindex $args 0]) }
-            foreach {opt val} $args {
-                set options($opt) $val
-            }
+            foreach {key val} $args { set options($key) $val }
         }
-        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
+
+        method cget {key} { return $options($key) }
+
+        export configure cget SendMessage UpdateTranslations ShowJSON
     }
 
     proc ChatWidget {path args} {
@@ -171,7 +243,7 @@ namespace eval ::llm_ui {
     }
 
     oo::class create SettingsWidgetClass {
-        variable w chatW providers_data current_p_name cb_p def_p_text sys_p_text cb_lang default_prompt
+        variable w chatW providers_data current_p_name cb_p cb_m def_p_text sys_p_text cb_lang default_prompt lastchat system_prompt
 
         constructor {path chatWidget args} {
             set w $path
@@ -179,36 +251,63 @@ namespace eval ::llm_ui {
             set providers_data {}
             set current_p_name ""
             set default_prompt "You are a helpful assistant."
+            set system_prompt ""
+            set lastchat {provider "" model ""}
 
             ttk::frame $w
-            my LoadProviders
+            my LoadPreferences
             my BuildUI
         }
 
-        method LoadProviders {} {
-            if {[file exists "providers.json"]} {
-                set fh [open "providers.json" r]
+        method LoadPreferences {} {
+            set pref_file [file join "settings" "preference.json"]
+            if {[file exists $pref_file]} {
+                set fh [open $pref_file r]
                 set json [read $fh]
                 close $fh
-                set data [::llm_ui::logic::json_parse $json]
-                set providers_data {}
-                foreach {k v} $data {
-                    if {$k eq "providers"} { set providers_data $v }
-                    if {$k eq "default_prompt"} { set default_prompt $v }
+                if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
+                    if {[dict exists $d default_prompt]} { set default_prompt [dict get $d default_prompt] }
+                    if {[dict exists $d system_prompt]} { set system_prompt [dict get $d system_prompt] }
+                    if {[dict exists $d providers]} { set providers_data [dict get $d providers] }
+                    if {[dict exists $d lastchat]} { set lastchat [dict get $d lastchat] }
                 }
-            } else {
+            }
+
+            if {[llength $providers_data] == 0} {
                 set providers_data [list \
-                    [list name "OpenAI" base_url "https://api.openai.com/v1" api_key "" models {}] \
                     [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
                     [list name "SiliconFlow" base_url "https://api.siliconflow.cn/v1" api_key "" models {}] \
+                    [list name "Nvidia" base_url "https://integrate.api.nvidia.com/v1" api_key "" models {}] \
+                    [list name "OpenRouter" base_url "https://openrouter.ai/api/v1" api_key "" models {}] \
+                    [list name "Local (Ollama/LM Studio)" base_url "http://localhost:11434/v1" api_key "" models {}] \
                 ]
             }
         }
 
-        method SaveProviders {} {
-            set fh [open "providers.json" w]
-            puts $fh [::llm_ui::logic::json_gen_providers $providers_data $default_prompt]
-            close $fh
+        method SavePreferences {args} {
+            set settings_dir "settings"
+            if {![file isdirectory $settings_dir]} { file mkdir $settings_dir }
+            set pref_file [file join $settings_dir "preference.json"]
+
+            set d {}
+            if {[file exists $pref_file]} {
+                set fh [open $pref_file r]; set json [read $fh]; close $fh
+                catch {set d [::llm_ui::logic::json_parse $json]}
+            }
+            foreach {k v} $args { dict set d $k $v }
+
+            set p_list_json {}
+            foreach p $providers_data { lappend p_list_json [::llm_ui::logic::json_gen_dict $p] }
+            dict set d providers "\[[join $p_list_json ,]\]"
+
+            set lc_provider $current_p_name
+            if {$lc_provider eq "" && [dict exists $d lastchat provider]} { set lc_provider [dict get $d lastchat provider] }
+            set lc_model ""
+            if {[info exists cb_m] && [winfo exists $cb_m]} { set lc_model [$cb_m get] }
+            if {$lc_model eq "" && [dict exists $d lastchat model]} { set lc_model [dict get $d lastchat model] }
+            dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model]]
+
+            set fh [open $pref_file w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
         }
 
         method FindProviderIdx {name} {
@@ -249,14 +348,13 @@ namespace eval ::llm_ui {
             set e_k [ttk::entry $f.ek -show "*"]
             grid $f.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
-            bind $e_k <FocusOut> [list [self] ChangeKey]
             incr row
             ttk::button $f.btn_key -text [::llm_ui::logic::mc "Change API Key"] -command [list [self] ChangeKey]
             grid $f.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
             incr row
             ttk::label $f.lm -text [::llm_ui::logic::mc "Model"]
-            set cb_m [ttk::combobox $f.cbm -state readonly]
             grid $f.lm -row $row -column 0 -sticky e -padx 5 -pady 5
+            set cb_m [ttk::combobox $f.cbm -state readonly]
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
             incr row
@@ -277,13 +375,21 @@ namespace eval ::llm_ui {
             grid $sys_p_frame -row $row -column 1 -sticky nsew -padx 5 -pady 5
             set sys_p_text [text $sys_p_frame.txt -height 3 -wrap word]
             pack $sys_p_text -fill both -expand yes
+            $sys_p_text insert 1.0 $system_prompt
             incr row
             ttk::button $f.btn_save -text [::llm_ui::logic::mc "Save Prompts"] -command [list [self] SavePrompts]
             grid $f.btn_save -row $row -column 1 -sticky e -padx 5 -pady 5
             grid columnconfigure $f 1 -weight 1
             grid rowconfigure $f [expr {$row-1}] -weight 1
             grid rowconfigure $f [expr {$row-3}] -weight 1
-            if {[llength $p_names] > 0} { $cb_p current 0; after idle [list [self] OnProviderSelected $cb_p] }
+
+            set last_p [dict get $lastchat provider]
+            set pidx [lsearch -exact $p_names $last_p]
+            if {$pidx == -1} { set pidx 0 }
+            if {[llength $p_names] > 0} {
+                $cb_p current $pidx
+                after idle [list [self] OnProviderSelected $cb_p]
+            }
         }
 
         method UpdateTranslations {} {
@@ -306,7 +412,7 @@ namespace eval ::llm_ui {
             if {$lang eq "简体中文"} { set locale zh_cn } elseif {$lang eq "繁體中文"} { set locale zh_tw }
             ::msgcat::mclocale $locale
             ::llm_ui::logic::mcload_msgs
-            set fh [open "preference.json" w]; puts $fh "\x7b\"language\": \"$locale\"\x7d"; close $fh
+            my SavePreferences language $locale
             my UpdateTranslations
             $chatW UpdateTranslations
             event generate . <<LanguageChanged>>
@@ -321,7 +427,11 @@ namespace eval ::llm_ui {
             set key ""
             foreach {k v} $p { if {$k eq "name"} { set current_p_name $v } elseif {$k eq "base_url"} { set url $v } elseif {$k eq "api_key"} { set key $v } }
             $w.config.ek delete 0 end; $w.config.ek insert 0 $key
-            $chatW configure -provider $current_p_name -base_url $url -api_key $key -system_prompt $default_prompt
+
+            set sp $system_prompt
+            if {$sp eq ""} { set sp $default_prompt }
+
+            $chatW configure -provider $current_p_name -base_url $url -api_key $key -system_prompt $sp
             my RefreshModels
         }
 
@@ -333,7 +443,7 @@ namespace eval ::llm_ui {
                 set new_p {}
                 foreach {k v} $p { if {$k eq "api_key"} { lappend new_p $k $key } else { lappend new_p $k $v } }
                 set providers_data [lreplace $providers_data $idx $idx $new_p]
-                my SaveProviders
+                my SavePreferences
                 $chatW configure -api_key $key
                 my RefreshModels
             }
@@ -341,29 +451,12 @@ namespace eval ::llm_ui {
 
         method SavePrompts {} {
             set default_prompt [string trim [$def_p_text get 1.0 end]]
-            set sys_prompt [string trim [$sys_p_text get 1.0 end]]
-            set m_name [$w.config.cbm get]
-            set p_idx [my FindProviderIdx $current_p_name]
-            if {$p_idx != -1} {
-                set p [lindex $providers_data $p_idx]
-                set models {}
-                foreach {k v} $p { if {$k eq "models"} { set models $v; break } }
-                set new_models {}
-                foreach m $models {
-                    set id ""
-                    if {[llength $m] > 1} {
-                        set midx [lsearch -exact $m "id"]
-                        if {$midx != -1} { set id [lindex $m [expr {$midx + 1}]] }
-                    } else { set id $m }
-                    if {$id eq $m_name} { set m [list id $m_name system_prompt $sys_prompt] }
-                    lappend new_models $m
-                }
-                set new_p {}
-                foreach {k v} $p { if {$k eq "models"} { lappend new_p $k $new_models } else { lappend new_p $k $v } }
-                set providers_data [lreplace $providers_data $p_idx $p_idx $new_p]
-                my SaveProviders
-            }
-            $chatW configure -system_prompt $sys_prompt
+            set system_prompt [string trim [$sys_p_text get 1.0 end]]
+            my SavePreferences default_prompt $default_prompt system_prompt $system_prompt
+
+            set sp $system_prompt
+            if {$sp eq ""} { set sp $default_prompt }
+            $chatW configure -system_prompt $sp
         }
 
         method RefreshModels {} {
@@ -389,71 +482,59 @@ namespace eval ::llm_ui {
 
         method FetchModels {base_url} {
             set url "$base_url/models"
-            set headers [list "Authorization" "Bearer [$chatW cget -api_key]"]
-            if {[catch {http::geturl $url -headers $headers -timeout 5000} token]} {
-                my UpdateModelList [list "gpt-4o-mini" "gpt-4o"]; return
+            set headers [list \
+                "Authorization" "Bearer [$chatW cget -api_key]" \
+                "Accept" "application/json" \
+                "User-Agent" "Tcl/Tk LLM Client" \
+            ]
+            if {[catch {http::geturl $url -headers $headers -timeout 10000} token]} {
+                set err_msg "Failed to fetch models: $token"
+                my UpdateModelList {}
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Fetch Error"] $err_msg "error"
+                return
             }
             set res [encoding convertfrom utf-8 [http::data $token]]; http::cleanup $token
             set ids [::llm_ui::logic::extract_ids $res "id"]
-            if {[llength $ids] == 0} { set ids [list "gpt-4o-mini" "gpt-4o"] }
             set p_idx [my FindProviderIdx $current_p_name]
             if {$p_idx != -1} {
                 set p [lindex $providers_data $p_idx]
                 set m_list {}
-                foreach id $ids { lappend m_list [list id $id system_prompt $default_prompt] }
+                foreach id $ids { lappend m_list $id }
                 set new_p {}
                 foreach {k v} $p { if {$k eq "models"} { lappend new_p $k $m_list } else { lappend new_p $k $v } }
                 set providers_data [lreplace $providers_data $p_idx $p_idx $new_p]
-                my SaveProviders
+                my SavePreferences
             }
             my UpdateModelList $ids
         }
+        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
+    }
 
         method UpdateModelList {models} {
-            $w.config.cbm configure -values $models
+            $cb_m configure -values $models
             if {[llength $models] > 0} {
-                set current [$chatW cget -model]
+                set current [dict get $lastchat model]
                 set midx [lsearch -exact $models $current]
-                $w.config.cbm current [expr {$midx != -1 ? $midx : 0}]
-                my OnModelSelected $w.config.cbm
+                if {$midx == -1} {
+                    set current [$chatW cget -model]
+                    set midx [lsearch -exact $models $current]
+                }
+                $cb_m current [expr {$midx != -1 ? $midx : 0}]
+                my OnModelSelected $cb_m
+            } else {
+                $cb_m set ""
+                $chatW configure -model ""
+                my SavePreferences
             }
+            return -1
         }
 
         method OnModelSelected {w_cb} {
             set model [$w_cb get]
             $chatW configure -model $model
-            set p_idx [my FindProviderIdx $current_p_name]
-            if {$p_idx == -1} return
-            set p [lindex $providers_data $p_idx]
-            set models {}; foreach {k v} $p { if {$k eq "models"} { set models $v; break } }
-            set prompt $default_prompt
-            foreach m $models {
-                set id ""; set sp ""
-                if {[llength $m] > 1} {
-                    set midx [lsearch -exact $m "id"]
-                    if {$midx != -1} { set id [lindex $m [expr {$midx + 1}]] }
-                    set sidx [lsearch -exact $m "system_prompt"]
-                    if {$sidx != -1} { set sp [lindex $m [expr {$sidx + 1}]] }
-                } else { set id $m }
-                if {$id eq $model} { if {$sp ne ""} { set prompt $sp }; break }
-            }
-            $sys_p_text delete 1.0 end; $sys_p_text insert 1.0 $prompt
-            $chatW configure -system_prompt $prompt
+            my SavePreferences
         }
-        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SavePrompts UpdateTranslations
-    }
-
-    proc ChatWidget {path args} {
-        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
-        rename $path ::$path:widget
-        proc ::$path {cmd args} [format {
-            set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
-                return [$obj $cmd {*}$args]
-            }
-            return [::%s:widget $cmd {*}$args]
-        } $path $path]
-        return $path
+        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SavePrompts UpdateTranslations SavePreferences
     }
 
     proc SettingsWidget {path chatWidget args} {

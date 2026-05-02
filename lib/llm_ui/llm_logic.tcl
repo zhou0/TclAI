@@ -40,7 +40,7 @@ namespace eval ::llm_ui::logic {
         if {$i >= [string length $json]} { return "" }
         set char [string index $json $i]
         if {$char eq "\x7b"} { return [json_parse_obj $json i] }
-        if {$char eq "\x5b"} { return [json_parse_arr $json i] }
+        if {$char eq "\["} { return [json_parse_arr $json i] }
         if {$char eq "\""} { return [json_parse_str $json i] }
         return [json_parse_lit $json i]
     }
@@ -122,42 +122,23 @@ namespace eval ::llm_ui::logic {
         return ""
     }
 
-    proc json_gen_providers {providers_data default_prompt} {
-        set p_list {}
-        foreach p $providers_data {
-            set items {}
-            foreach {k v} $p {
-                if {$k eq "models"} {
-                    set m_list {}
-                    foreach m $v {
-                        if {[llength $m] > 1} {
-                            set m_items {}
-                            foreach {mk mv} $m { lappend m_items "\"$mk\": \"[escape_json $mv]\"" }
-                            lappend m_list "\x7b[join $m_items ", "]\x7d"
-                        } else {
-                            lappend m_list "\"$m\""
-                        }
-                    }
-                    lappend items "\"models\": \x5b[join $m_list ", "]\x5d"
-                } else {
-                    lappend items "\"$k\": \"[escape_json $v]\""
-                }
-            }
-            lappend p_list "\x7b[join $items ", "]\x7d"
+    proc json_gen_dict {data} {
+        set items {}
+        foreach {k v} $data {
+            lappend items "\"$k\": [json_gen_val $v]"
         }
-        return "\x7b\"default_prompt\": \"[escape_json $default_prompt]\", \"providers\": \x5b[join $p_list ", "]\x5d\x7d"
+        return "\x7b[join $items ", "]\x7d"
     }
 
-    proc json_gen_history {messages} {
-        set m_list {}
-        foreach m $messages {
-            set m_items {}
-            foreach {k v} $m {
-                lappend m_items "\"$k\": \"[escape_json $v]\""
-            }
-            lappend m_list "\x7b[join $m_items ", "]\x7d"
-        }
-        return "\x5b[join $m_list ", "]\x5d"
+    proc json_gen_val {val} {
+        if {[string is integer -strict $val]} { return $val }
+        if {$val eq "true"} { return "true" }
+        if {$val eq "false"} { return "false" }
+        set trimmed [string trim $val]
+        if {[string index $trimmed 0] eq "\x7b" && [string index $trimmed end] eq "\x7d"} { return $val }
+        if {[string index $trimmed 0] eq "\[" && [string index $trimmed end] eq "\]"} { return $val }
+
+        return "\"[escape_json $val]\""
     }
 
     proc extract_ids {json key} {
@@ -165,6 +146,74 @@ namespace eval ::llm_ui::logic {
         set pattern "\"$key\":\\s*\"(\x5b^\x22\x5d+)\""
         set matches [regexp -all -inline $pattern $json]
         foreach {full match} $matches { lappend ids $match }
+
+        if {[llength $ids] == 0} {
+             set pattern "\"(\x5b^\x22\x5d+)\""
+             set matches [regexp -all -inline $pattern $json]
+             foreach {full match} $matches {
+                if {$match ne "id" && $match ne "object" && $match ne "models" && $match ne "data"} {
+                    lappend ids $match
+                }
+             }
+        }
         return [lsort -unique $ids]
+    }
+
+    proc json_pretty {json {indent "  "}} {
+        set result ""
+        set level 0
+        set in_string 0
+        set escaped 0
+
+        for {set i 0} {$i < [string length $json]} {incr i} {
+            set char [string index $json $i]
+
+            if {$escaped} {
+                append result $char
+                set escaped 0
+                continue
+            }
+
+            if {$char eq "\\"} {
+                append result $char
+                set escaped 1
+                continue
+            }
+
+            if {$char eq "\""} {
+                append result $char
+                set in_string [expr {!$in_string}]
+                continue
+            }
+
+            if {$in_string} {
+                append result $char
+                continue
+            }
+
+            switch -exact -- $char {
+                "{" - "[" {
+                    incr level
+                    append result $char "\n" [string repeat $indent $level]
+                }
+                "}" - "]" {
+                    set level [expr {$level - 1}]
+                    append result "\n" [string repeat $indent $level] $char
+                }
+                "," {
+                    append result $char "\n" [string repeat $indent $level]
+                }
+                ":" {
+                    append result $char " "
+                }
+                " " - "\t" - "\n" - "\r" {
+                    # Skip existing whitespace outside of strings
+                }
+                default {
+                    append result $char
+                }
+            }
+        }
+        return $result
     }
 }

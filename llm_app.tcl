@@ -44,7 +44,7 @@ proc DetectSystemLocale {} {
 
 # Load preferences
 set locale ""
-set pref_file [file join $script_dir settings preference.json]
+set pref_file [file join $script_dir data preference.json]
 if {[file exists $pref_file]} {
     set fh [open $pref_file r]
     set json [read $fh]

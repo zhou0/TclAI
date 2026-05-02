@@ -256,7 +256,7 @@ namespace eval ::llm_ui {
         }
 
         method LoadPreferences {} {
-            set pref_file [file join "settings" "preference.json"]
+            set pref_file [file join "data" "preference.json"]
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]
                 set json [read $fh]
@@ -281,9 +281,9 @@ namespace eval ::llm_ui {
         }
 
         method SavePreferences {args} {
-            set settings_dir "settings"
-            if {![file isdirectory $settings_dir]} { file mkdir $settings_dir }
-            set pref_file [file join $settings_dir "preference.json"]
+            set data_dir "data"
+            if {![file isdirectory $data_dir]} { file mkdir $data_dir }
+            set pref_file [file join $data_dir "preference.json"]
             
             set d {}
             if {[file exists $pref_file]} {
@@ -473,8 +473,6 @@ namespace eval ::llm_ui {
             }
             my FetchModels [my cget_chatW_base_url]
         }
-        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
-    }
 
         method cget_chatW_base_url {} { return [$chatW cget -base_url] }
 
@@ -522,7 +520,6 @@ namespace eval ::llm_ui {
                 $chatW configure -model ""
                 my SavePreferences
             }
-            return -1
         }
 
         method OnModelSelected {w_cb} {

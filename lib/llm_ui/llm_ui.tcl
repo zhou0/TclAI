@@ -204,7 +204,7 @@ namespace eval ::llm_ui {
         }
 
         method SaveHistory {} {
-            set settings_dir "settings"
+            set data_dir "data"
             if {![file isdirectory $data_dir]} { file mkdir $data_dir }
             set hist_file [file join $data_dir "history.json"]
             set fh [open $hist_file w]

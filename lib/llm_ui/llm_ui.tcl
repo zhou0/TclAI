@@ -83,11 +83,11 @@ namespace eval ::llm_ui {
             set url "$options(-base_url)/chat/completions"
             set sys_msg [list role "system" content $options(-system_prompt)]
             set full_messages [linsert $messages 0 $sys_msg]
-
+            
             set m_list {}
             foreach m $full_messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             set messages_json "\[[join $m_list ,]\]"
-
+            
             set body "\x7b\"model\": \"$options(-model)\", \"messages\": $messages_json, \"stream\": false, \"max_tokens\": 1024, \"temperature\": 1, \"top_p\": 1\x7d"
 
             set headers [list \
@@ -96,7 +96,7 @@ namespace eval ::llm_ui {
                 "Authorization" "Bearer $options(-api_key)" \
                 "User-Agent" "Tcl/Tk LLM Client" \
             ]
-
+            
             my AppendHistory "Assistant" "..."
 
             if {[catch {
@@ -157,7 +157,7 @@ namespace eval ::llm_ui {
             grid $sbx -row 1 -column 0 -sticky ew
             grid rowconfigure $top 0 -weight 1
             grid columnconfigure $top 0 -weight 1
-
+            
             $txt insert 1.0 [::llm_ui::logic::json_pretty $json]
             $txt configure -state disabled
         }
@@ -165,21 +165,17 @@ namespace eval ::llm_ui {
         method UpdateLastHistory {msg} {
             $history configure -state normal
             if {$last_assistant_marker ne ""} {
-                set start $last_assistant_marker
-                set end "end"
-                $history delete $start $end
-                $history insert end "Assistant: $msg\n"
-            } else {
-                $history insert end "Assistant: $msg\n"
+                $history delete $last_assistant_marker end
             }
+            $history insert end "Assistant: $msg\n"
 
             set btn_path "$history.btn_[clock clicks]"
             ttk::button $btn_path -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $last_raw_json] -padding 2
 
-            # Apply right alignment by tagging the line where the window is created
-            set win_idx [$history index "end - 1c"]
+            # Use a separate line for the button to justify it independently
+            set btn_idx [$history index "end - 1c"]
             $history window create end -window $btn_path -padx 5
-            $history tag add right_aligned "$win_idx linestart" "end - 1c"
+            $history tag add right_aligned "$btn_idx linestart" "$btn_idx lineend"
             $history insert end "\n\n"
 
             $history configure -state disabled
@@ -272,7 +268,7 @@ namespace eval ::llm_ui {
                     if {[dict exists $d lastchat]} { set lastchat [dict get $d lastchat] }
                 }
             }
-
+            
             if {[llength $providers_data] == 0} {
                 set providers_data [list \
                     [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
@@ -288,14 +284,14 @@ namespace eval ::llm_ui {
             set settings_dir "settings"
             if {![file isdirectory $settings_dir]} { file mkdir $settings_dir }
             set pref_file [file join $settings_dir "preference.json"]
-
+            
             set d {}
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]; set json [read $fh]; close $fh
                 catch {set d [::llm_ui::logic::json_parse $json]}
             }
             foreach {k v} $args { dict set d $k $v }
-
+            
             set p_list_json {}
             foreach p $providers_data { lappend p_list_json [::llm_ui::logic::json_gen_dict $p] }
             dict set d providers "\[[join $p_list_json ,]\]"
@@ -453,7 +449,7 @@ namespace eval ::llm_ui {
             set default_prompt [string trim [$def_p_text get 1.0 end]]
             set system_prompt [string trim [$sys_p_text get 1.0 end]]
             my SavePreferences default_prompt $default_prompt system_prompt $system_prompt
-
+            
             set sp $system_prompt
             if {$sp eq ""} { set sp $default_prompt }
             $chatW configure -system_prompt $sp
@@ -477,6 +473,8 @@ namespace eval ::llm_ui {
             }
             my FetchModels [my cget_chatW_base_url]
         }
+        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
+    }
 
         method cget_chatW_base_url {} { return [$chatW cget -base_url] }
 
@@ -507,8 +505,6 @@ namespace eval ::llm_ui {
             }
             my UpdateModelList $ids
         }
-        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
-    }
 
         method UpdateModelList {models} {
             $cb_m configure -values $models

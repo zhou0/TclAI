@@ -175,8 +175,11 @@ namespace eval ::llm_ui {
 
             set btn_path "$history.btn_[clock clicks]"
             ttk::button $btn_path -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $last_raw_json] -padding 2
+
+            # Apply right alignment by tagging the line where the window is created
+            set win_idx [$history index "end - 1c"]
             $history window create end -window $btn_path -padx 5
-            $history tag add right_aligned "$history index {end - 2c} linestart" "end - 1c"
+            $history tag add right_aligned "$win_idx linestart" "end - 1c"
             $history insert end "\n\n"
 
             $history configure -state disabled

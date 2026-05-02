@@ -57,7 +57,6 @@ proc assert {condition msg} {
 }
 
 # Ensure directories exist for test
-file mkdir settings
 file mkdir data
 
 puts "--- Starting UI Test Suite ---"

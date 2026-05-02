@@ -204,7 +204,7 @@ namespace eval ::llm_ui {
         }
 
         method SaveHistory {} {
-            set data_dir "data"
+            set settings_dir "settings"
             if {![file isdirectory $data_dir]} { file mkdir $data_dir }
             set hist_file [file join $data_dir "history.json"]
             set fh [open $hist_file w]
@@ -473,8 +473,6 @@ namespace eval ::llm_ui {
             }
             my FetchModels [my cget_chatW_base_url]
         }
-        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
-    }
 
         method cget_chatW_base_url {} { return [$chatW cget -base_url] }
 
@@ -522,7 +520,6 @@ namespace eval ::llm_ui {
                 $chatW configure -model ""
                 my SavePreferences
             }
-            return -1
         }
 
         method OnModelSelected {w_cb} {

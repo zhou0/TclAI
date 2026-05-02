@@ -10,7 +10,7 @@
 ::msgcat::mcset zh_cn "Save Prompts" "保存提示词"
 ::msgcat::mcset zh_cn "Language" "语言"
 ::msgcat::mcset zh_cn "Send" "发送"
-::msgcat::mcset zh_cn "Show JSON" "显示 JSON"
+::msgcat::mcset zh_cn "Show full response data" "显示完整响应数据"
 ::msgcat::mcset zh_cn "Settings Error" "设置错误"
 ::msgcat::mcset zh_cn "Model Error" "模型错误"
 ::msgcat::mcset zh_cn "API Error" "API 错误"

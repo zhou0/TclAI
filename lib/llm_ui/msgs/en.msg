@@ -10,7 +10,7 @@
 ::msgcat::mcset en "Save Prompts" "Save Prompts"
 ::msgcat::mcset en "Language" "Language"
 ::msgcat::mcset en "Send" "Send"
-::msgcat::mcset en "Show JSON" "Show JSON"
+::msgcat::mcset en "Show full response data" "Show full response data"
 ::msgcat::mcset en "Settings Error" "Settings Error"
 ::msgcat::mcset en "Model Error" "Model Error"
 ::msgcat::mcset en "API Error" "API Error"

@@ -23,6 +23,8 @@ namespace eval ::llm_ui {
 
             ttk::frame $w
             set history [text $w.history -height 15 -state disabled -wrap word]
+            $history tag configure right_aligned -justify right
+
             set input [text $w.input -height 3 -wrap word]
             set send [ttk::button $w.send -text [::llm_ui::logic::mc "Send"] -command [list [self] SendMessage]]
 
@@ -156,7 +158,7 @@ namespace eval ::llm_ui {
             grid rowconfigure $top 0 -weight 1
             grid columnconfigure $top 0 -weight 1
 
-            $txt insert 1.0 $json
+            $txt insert 1.0 [::llm_ui::logic::json_pretty $json]
             $txt configure -state disabled
         }
 
@@ -172,8 +174,9 @@ namespace eval ::llm_ui {
             }
 
             set btn_path "$history.btn_[clock clicks]"
-            ttk::button $btn_path -text [::llm_ui::logic::mc "Show JSON"] -command [list [self] ShowJSON $last_raw_json] -padding 2
-            $history window create end -window $btn_path
+            ttk::button $btn_path -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $last_raw_json] -padding 2
+            $history window create end -window $btn_path -padx 5
+            $history tag add right_aligned "$history index {end - 2c} linestart" "end - 1c"
             $history insert end "\n\n"
 
             $history configure -state disabled

@@ -65,7 +65,7 @@ if {$locale eq ""} {
 
 SetNativeTheme
 
-wm title . "TTK LLM Frontend"
+wm title . "TclAI"
 wm geometry . 800x600
 
 # Create Navigation Rail

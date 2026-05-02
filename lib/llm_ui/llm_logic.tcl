@@ -158,4 +158,62 @@ namespace eval ::llm_ui::logic {
         }
         return [lsort -unique $ids]
     }
+
+    proc json_pretty {json {indent "  "}} {
+        set result ""
+        set level 0
+        set in_string 0
+        set escaped 0
+
+        for {set i 0} {$i < [string length $json]} {incr i} {
+            set char [string index $json $i]
+
+            if {$escaped} {
+                append result $char
+                set escaped 0
+                continue
+            }
+
+            if {$char eq "\\"} {
+                append result $char
+                set escaped 1
+                continue
+            }
+
+            if {$char eq "\""} {
+                append result $char
+                set in_string [expr {!$in_string}]
+                continue
+            }
+
+            if {$in_string} {
+                append result $char
+                continue
+            }
+
+            switch -exact -- $char {
+                "{" - "[" {
+                    incr level
+                    append result $char "\n" [string repeat $indent $level]
+                }
+                "}" - "]" {
+                    set level [expr {$level - 1}]
+                    append result "\n" [string repeat $indent $level] $char
+                }
+                "," {
+                    append result $char "\n" [string repeat $indent $level]
+                }
+                ":" {
+                    append result $char " "
+                }
+                " " - "\t" - "\n" - "\r" {
+                    # Skip existing whitespace outside of strings
+                }
+                default {
+                    append result $char
+                }
+            }
+        }
+        return $result
+    }
 }

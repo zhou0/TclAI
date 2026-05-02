@@ -507,6 +507,8 @@ namespace eval ::llm_ui {
             }
             my UpdateModelList $ids
         }
+        export SendMessage cget configure UpdateTranslations SaveHistory LoadHistory
+    }
 
         method UpdateModelList {models} {
             $cb_m configure -values $models
@@ -524,6 +526,7 @@ namespace eval ::llm_ui {
                 $chatW configure -model ""
                 my SavePreferences
             }
+            return -1
         }
 
         method OnModelSelected {w_cb} {

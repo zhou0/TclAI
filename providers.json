@@ -1,0 +1,29 @@
+{
+  "default_prompt": "You are a helpful assistant.",
+  "providers": [
+    {
+      "name": "OpenAI",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "models": []
+    },
+    {
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "",
+      "models": []
+    },
+    {
+      "name": "Anthropic (Proxy)",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "",
+      "models": []
+    },
+    {
+      "name": "Local (Ollama/LM Studio)",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "",
+      "models": []
+    }
+  ]
+}

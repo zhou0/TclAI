@@ -352,6 +352,7 @@ namespace eval ::llm_ui {
             dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model api_key $lc_key]]
 
             set fh [open $pref_file w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
+            set fh [open $prov_file w]; puts $fh $prov_json_str; close $fh
         }
 
         method FindProviderIdx {name} {

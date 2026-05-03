@@ -277,14 +277,9 @@ namespace eval ::llm_ui {
                 catch { set providers_data [::llm_ui::logic::json_parse $json] }
             }
 
+            # Start with an empty list if nothing configured
             if {[llength $providers_data] == 0} {
-                set providers_data [list \
-                    [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
-                    [list name "SiliconFlow" base_url "https://api.siliconflow.cn/v1" api_key "" models {}] \
-                    [list name "Nvidia" base_url "https://integrate.api.nvidia.com/v1" api_key "" models {}] \
-                    [list name "OpenRouter" base_url "https://openrouter.ai/api/v1" api_key "" models {}] \
-                    [list name "Local (Ollama/LM Studio)" base_url "http://localhost:11434/v1" api_key "" models {}] \
-                ]
+                set providers_data {}
             }
 
             if {[file exists $pref_file]} {
@@ -319,6 +314,7 @@ namespace eval ::llm_ui {
             set pref_file [file join $settings_dir "preference.json"]
             set prov_file [file join $data_dir "providers.json"]
             
+            # Load existing preference to merge
             set d {}
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]; set json [read $fh]; close $fh
@@ -326,6 +322,7 @@ namespace eval ::llm_ui {
             }
             foreach {k v} $args { dict set d $k $v }
             
+            # 1. Save data/providers.json (List of providers with base_url and models)
             set p_list_clean {}
             set p_keys {}
             foreach p $providers_data {

@@ -1,11 +1,12 @@
 package provide llm_ui 0.1
 
 package require Tk
+package require TclOO
 package require llm_ui::logic
 package require ttk::messagebox
 
 namespace eval ::llm_ui {
-    oo::class create ChatWidgetClass {
+    ::oo::class create ChatWidgetClass {
         variable w history input send options messages last_raw_json last_assistant_marker
 
         constructor {path args} {
@@ -240,7 +241,7 @@ namespace eval ::llm_ui {
         return $path
     }
 
-    oo::class create SettingsWidgetClass {
+    ::oo::class create SettingsWidgetClass {
         variable w chatW providers_data current_p_name cb_p cb_m def_p_text sys_p_text cb_lang default_prompt lastchat system_prompt
 
         constructor {path chatWidget args} {

@@ -70,9 +70,9 @@ wm geometry . 800x600
 
 # Create Navigation Rail
 ttk::m3::navrail .nav
-.nav add_item toggle "☰" ""
-.nav add_item chat "💬" [::llm_ui::logic::mc "Chat"]
-.nav add_item settings "⚙️" [::llm_ui::logic::mc "Settings"]
+.nav add_item toggle "\u2630" ""
+.nav add_item chat "\U0001F4AC" [::llm_ui::logic::mc "Chat"]
+.nav add_item settings "\u2699\uFE0F" [::llm_ui::logic::mc "Settings"]
 
 # Main container for screens
 ttk::frame .main

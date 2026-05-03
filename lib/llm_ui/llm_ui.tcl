@@ -198,6 +198,7 @@ namespace eval ::llm_ui {
             set hist_file [file join $data_dir "history.json"]
             if {[file exists $hist_file]} {
                 set fh [open $hist_file r]
+                fconfigure $fh -encoding utf-8
                 set json [read $fh]
                 close $fh
                 if {![catch {set data [::llm_ui::logic::json_parse $json]}]} {
@@ -219,6 +220,7 @@ namespace eval ::llm_ui {
             if {![file isdirectory $data_dir]} { file mkdir $data_dir }
             set hist_file [file join $data_dir "history.json"]
             set fh [open $hist_file w]
+            fconfigure $fh -encoding utf-8
             set m_list {}
             foreach m $messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             puts $fh "\[[join $m_list ,]\]"
@@ -273,17 +275,16 @@ namespace eval ::llm_ui {
             set prov_file [file join $data_dir "providers.json"]
 
             if {[file exists $prov_file]} {
-                set fh [open $prov_file r]; set json [read $fh]; close $fh
+                set fh [open $prov_file r]
+                fconfigure $fh -encoding utf-8
+                set json [read $fh]; close $fh
                 catch { set providers_data [::llm_ui::logic::json_parse $json] }
             }
 
-            # Start with an empty list if nothing configured
-            if {[llength $providers_data] == 0} {
-                set providers_data {}
-            }
-
             if {[file exists $pref_file]} {
-                set fh [open $pref_file r]; set json [read $fh]; close $fh
+                set fh [open $pref_file r]
+                fconfigure $fh -encoding utf-8
+                set json [read $fh]; close $fh
                 if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
                     if {[dict exists $d default_prompt]} { set default_prompt [dict get $d default_prompt] }
                     if {[dict exists $d system_prompt]} { set system_prompt [dict get $d system_prompt] }
@@ -317,7 +318,9 @@ namespace eval ::llm_ui {
             # Load existing preference to merge
             set d {}
             if {[file exists $pref_file]} {
-                set fh [open $pref_file r]; set json [read $fh]; close $fh
+                set fh [open $pref_file r]
+                fconfigure $fh -encoding utf-8
+                set json [read $fh]; close $fh
                 catch {set d [::llm_ui::logic::json_parse $json]}
             }
             foreach {k v} $args { dict set d $k $v }
@@ -335,7 +338,9 @@ namespace eval ::llm_ui {
                 lappend p_list_clean [::llm_ui::logic::json_gen_dict $p_clean]
             }
             set prov_json_str "\[[join $p_list_clean ,]\]"
-            set fh [open $prov_file w]; puts $fh $prov_json_str; close $fh
+            set fh [open $prov_file w]
+            fconfigure $fh -encoding utf-8
+            puts $fh $prov_json_str; close $fh
 
             dict set d providers_keys [::llm_ui::logic::json_gen_dict $p_keys]
 
@@ -351,8 +356,9 @@ namespace eval ::llm_ui {
 
             dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model api_key $lc_key]]
 
-            set fh [open $pref_file w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
-            set fh [open $prov_file w]; puts $fh $prov_json_str; close $fh
+            set fh [open $pref_file w]
+            fconfigure $fh -encoding utf-8
+            puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
         }
 
         method FindProviderIdx {name} {

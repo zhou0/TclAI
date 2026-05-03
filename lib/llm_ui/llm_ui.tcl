@@ -89,19 +89,27 @@ namespace eval ::llm_ui {
             foreach m $full_messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             set messages_json "\[[join $m_list ,]\]"
             
-            set body "\x7b\"model\": \"$options(-model)\", \"messages\": $messages_json, \"stream\": false, \"max_tokens\": 1024, \"temperature\": 1, \"top_p\": 1\x7d"
+            # Using dict to build body for better escaping
+            set body_dict [list \
+                model $options(-model) \
+                messages $messages_json \
+                stream false \
+                max_tokens 1024 \
+                temperature 1 \
+                top_p 1 \
+            ]
+            set body [::llm_ui::logic::json_gen_dict $body_dict]
 
             set headers [list \
-                "Content-Type" "application/json" \
                 "Accept" "application/json" \
-                "Authorization" "Bearer $options(-api_key)" \
-                "User-Agent" "Tcl/Tk LLM Client" \
+                "Authorization" "Bearer [string trim $options(-api_key)]" \
+                "User-Agent" "OpenAI/Python 1.51.2" \
             ]
             
             my AppendHistory "Assistant" "..."
 
             if {[catch {
-                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -timeout 60000]
+                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -type "application/json" -timeout 60000]
                 set status [http::status $token]
                 set ncode [http::ncode $token]
                 set data [encoding convertfrom utf-8 [http::data $token]]
@@ -547,13 +555,13 @@ namespace eval ::llm_ui {
             # Simple test by fetching models
             set test_url "$url/models"
             set headers [list \
-                "Authorization" "Bearer $key" \
+                "Authorization" "Bearer [string trim $key]" \
                 "Accept" "application/json" \
-                "User-Agent" "Tcl/Tk LLM Client" \
+                "User-Agent" "OpenAI/Python 1.51.2" \
             ]
 
             if {[catch {
-                set token [http::geturl $test_url -headers $headers -timeout 10000]
+                set token [http::geturl $test_url -headers $headers -type "application/json" -timeout 10000]
                 set ncode [http::ncode $token]
                 set res [encoding convertfrom utf-8 [http::data $token]]
                 http::cleanup $token
@@ -627,11 +635,11 @@ namespace eval ::llm_ui {
         method FetchModels {base_url} {
             set url "$base_url/models"
             set headers [list \
-                "Authorization" "Bearer [$chatW cget -api_key]" \
+                "Authorization" "Bearer [string trim [$chatW cget -api_key]]" \
                 "Accept" "application/json" \
-                "User-Agent" "Tcl/Tk LLM Client" \
+                "User-Agent" "OpenAI/Python 1.51.2" \
             ]
-            if {[catch {http::geturl $url -headers $headers -timeout 10000} token]} {
+            if {[catch {http::geturl $url -headers $headers -type "application/json" -timeout 10000} token]} {
                 set err_msg "Failed to fetch models: $token"
                 my UpdateModelList {}
                 ::ttk::messagebox::show $w [::llm_ui::logic::mc "Fetch Error"] $err_msg "error"

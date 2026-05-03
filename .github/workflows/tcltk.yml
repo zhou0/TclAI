@@ -12,33 +12,50 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # 法律文档自动化项目（如 Casely）建议涵盖这三个平台
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --- 环境准备 ---
       - name: Install Tcl (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y tcl tcl-dev tk-dev
 
       - name: Install Tcl (macOS)
         if: matrix.os == 'macos-latest'
-        run: brew install tcl-tk@8
+        run: |
+          brew install tcl-tk
+          echo "/opt/homebrew/opt/tcl-tk/bin" >> $GITHUB_PATH
 
       - name: Install Tcl (Windows)
         if: matrix.os == 'windows-latest'
         run: choco install magicsplat-tcl-tk
 
-      # --- 运行单元测试 ---
+      - name: Environment Info
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            TCLSH=/opt/homebrew/opt/tcl-tk/bin/tclsh
+          else
+            TCLSH=tclsh
+          fi
+          $TCLSH << 'EOF'
+          puts "Tcl Version: [info patchlevel]"
+          if {[catch {package require TclOO} res]} {
+              puts "TclOO: NOT FOUND ($res)"
+          } else {
+              puts "TclOO: Found [package present TclOO]"
+          }
+          EOF
+
       - name: Run Tcltests
+        shell: bash
         run: |
-          # 假设你的测试脚本名为 all.tcl
-          tclsh tests/test_navrail.tcl
-          tclsh tests/test_llm_ui.tcl
-      - name: Run a multi-line script
-        run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            TCLSH=/opt/homebrew/opt/tcl-tk/bin/tclsh
+          else
+            TCLSH=tclsh
+          fi
+          $TCLSH tests/test_navrail.tcl
+          $TCLSH tests/test_llm_ui.tcl

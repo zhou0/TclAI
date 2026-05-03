@@ -1,11 +1,12 @@
 package provide llm_ui 0.1
 
 package require Tk
+package require TclOO
 package require llm_ui::logic
 package require ttk::messagebox
 
 namespace eval ::llm_ui {
-    oo::class create ChatWidgetClass {
+    ::oo::class create ChatWidgetClass {
         variable w history input send options messages last_raw_json last_assistant_marker
 
         constructor {path args} {
@@ -184,6 +185,8 @@ namespace eval ::llm_ui {
         }
 
         method LoadHistory {} {
+            set data_dir "data"
+            if {![file isdirectory $data_dir]} { file mkdir $data_dir }
             set hist_file [file join "data" "history.json"]
             if {[file exists $hist_file]} {
                 set fh [open $hist_file r]
@@ -238,7 +241,7 @@ namespace eval ::llm_ui {
         return $path
     }
 
-    oo::class create SettingsWidgetClass {
+    ::oo::class create SettingsWidgetClass {
         variable w chatW providers_data current_p_name cb_p cb_m def_p_text sys_p_text cb_lang default_prompt lastchat system_prompt
 
         constructor {path chatWidget args} {
@@ -256,7 +259,10 @@ namespace eval ::llm_ui {
         }
 
         method LoadPreferences {} {
-            set pref_file [file join "settings" "preference.json"]
+            set settings_dir "settings"
+            set pref_file [file join $settings_dir "preference.json"]
+            set prov_file [file join $settings_dir "providers.json"]
+
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]
                 set json [read $fh]
@@ -264,11 +270,20 @@ namespace eval ::llm_ui {
                 if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
                     if {[dict exists $d default_prompt]} { set default_prompt [dict get $d default_prompt] }
                     if {[dict exists $d system_prompt]} { set system_prompt [dict get $d system_prompt] }
-                    if {[dict exists $d providers]} { set providers_data [dict get $d providers] }
                     if {[dict exists $d lastchat]} { set lastchat [dict get $d lastchat] }
+                    if {[dict exists $d providers]} { set providers_data [dict get $d providers] }
                 }
             }
             
+            if {[file exists $prov_file]} {
+                set fh [open $prov_file r]
+                set json [read $fh]
+                close $fh
+                if {![catch {set pd [::llm_ui::logic::json_parse $json]}]} {
+                    set providers_data $pd
+                }
+            }
+
             if {[llength $providers_data] == 0} {
                 set providers_data [list \
                     [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
@@ -284,6 +299,7 @@ namespace eval ::llm_ui {
             set settings_dir "settings"
             if {![file isdirectory $settings_dir]} { file mkdir $settings_dir }
             set pref_file [file join $settings_dir "preference.json"]
+            set prov_file [file join $settings_dir "providers.json"]
             
             set d {}
             if {[file exists $pref_file]} {
@@ -294,7 +310,8 @@ namespace eval ::llm_ui {
             
             set p_list_json {}
             foreach p $providers_data { lappend p_list_json [::llm_ui::logic::json_gen_dict $p] }
-            dict set d providers "\[[join $p_list_json ,]\]"
+            set prov_json_str "\[[join $p_list_json ,]\]"
+            dict set d providers $prov_json_str
 
             set lc_provider $current_p_name
             if {$lc_provider eq "" && [dict exists $d lastchat provider]} { set lc_provider [dict get $d lastchat provider] }
@@ -304,6 +321,7 @@ namespace eval ::llm_ui {
             dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model]]
 
             set fh [open $pref_file w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
+            set fh [open $prov_file w]; puts $fh $prov_json_str; close $fh
         }
 
         method FindProviderIdx {name} {
@@ -332,6 +350,7 @@ namespace eval ::llm_ui {
             grid $cb_lang -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_lang <<ComboboxSelected>> [list [self] OnLanguageSelected]
             incr row
+
             ttk::label $f.lp -text [::llm_ui::logic::mc "Provider"]
             set p_names {}
             foreach p $providers_data { foreach {k v} $p { if {$k eq "name"} { lappend p_names $v; break } } }
@@ -339,45 +358,54 @@ namespace eval ::llm_ui {
             grid $f.lp -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $cb_p -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_p <<ComboboxSelected>> [list [self] OnProviderSelected %W]
+
+            ttk::button $f.btn_add_p -text [::llm_ui::logic::mc "Add provider"] -command [list [self] AddProvider]
+            grid $f.btn_add_p -row $row -column 2 -padx 5 -pady 5
             incr row
+
             ttk::label $f.lk -text [::llm_ui::logic::mc "API Key"]
             set e_k [ttk::entry $f.ek -show "*"]
             grid $f.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
-            incr row
+
             ttk::button $f.btn_key -text [::llm_ui::logic::mc "Change API Key"] -command [list [self] ChangeKey]
-            grid $f.btn_key -row $row -column 1 -sticky e -padx 5 -pady 5
+            grid $f.btn_key -row $row -column 2 -padx 5 -pady 5
             incr row
+
             ttk::label $f.lm -text [::llm_ui::logic::mc "Model"]
             grid $f.lm -row $row -column 0 -sticky e -padx 5 -pady 5
             set cb_m [ttk::combobox $f.cbm -state readonly]
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
-            incr row
+
             ttk::button $f.btn_refresh -text [::llm_ui::logic::mc "Refresh Models"] -command [list [self] RefreshModels]
-            grid $f.btn_refresh -row $row -column 1 -sticky e -padx 5 -pady 5
+            grid $f.btn_refresh -row $row -column 2 -padx 5 -pady 5
             incr row
+
             ttk::label $f.ldp -text [::llm_ui::logic::mc "Default Prompt"]
             grid $f.ldp -row $row -column 0 -sticky ne -padx 5 -pady 5
             set def_p_frame [ttk::frame $f.dpf]
-            grid $def_p_frame -row $row -column 1 -sticky nsew -padx 5 -pady 5
+            grid $def_p_frame -row $row -column 1 -columnspan 2 -sticky nsew -padx 5 -pady 5
             set def_p_text [text $def_p_frame.txt -height 3 -wrap word]
             pack $def_p_text -fill both -expand yes
             $def_p_text insert 1.0 $default_prompt
             incr row
+
             ttk::label $f.lsp -text [::llm_ui::logic::mc "System Prompt"]
             grid $f.lsp -row $row -column 0 -sticky ne -padx 5 -pady 5
             set sys_p_frame [ttk::frame $f.spf]
-            grid $sys_p_frame -row $row -column 1 -sticky nsew -padx 5 -pady 5
+            grid $sys_p_frame -row $row -column 1 -columnspan 2 -sticky nsew -padx 5 -pady 5
             set sys_p_text [text $sys_p_frame.txt -height 3 -wrap word]
             pack $sys_p_text -fill both -expand yes
             $sys_p_text insert 1.0 $system_prompt
             incr row
-            ttk::button $f.btn_save -text [::llm_ui::logic::mc "Save Prompts"] -command [list [self] SavePrompts]
-            grid $f.btn_save -row $row -column 1 -sticky e -padx 5 -pady 5
+
+            ttk::button $f.btn_save -text [::llm_ui::logic::mc "Save all settings"] -command [list [self] SaveAllSettings]
+            grid $f.btn_save -row $row -column 1 -columnspan 2 -sticky e -padx 5 -pady 5
+
             grid columnconfigure $f 1 -weight 1
             grid rowconfigure $f [expr {$row-1}] -weight 1
-            grid rowconfigure $f [expr {$row-3}] -weight 1
+            grid rowconfigure $f [expr {$row-2}] -weight 1
 
             set last_p [dict get $lastchat provider]
             set pidx [lsearch -exact $p_names $last_p]
@@ -393,13 +421,14 @@ namespace eval ::llm_ui {
             $f configure -text [::llm_ui::logic::mc "Settings"]
             $f.llang configure -text [::llm_ui::logic::mc "Language"]
             $f.lp configure -text [::llm_ui::logic::mc "Provider"]
+            $f.btn_add_p configure -text [::llm_ui::logic::mc "Add provider"]
             $f.lk configure -text [::llm_ui::logic::mc "API Key"]
             $f.btn_key configure -text [::llm_ui::logic::mc "Change API Key"]
             $f.lm configure -text [::llm_ui::logic::mc "Model"]
             $f.btn_refresh configure -text [::llm_ui::logic::mc "Refresh Models"]
             $f.ldp configure -text [::llm_ui::logic::mc "Default Prompt"]
             $f.lsp configure -text [::llm_ui::logic::mc "System Prompt"]
-            $f.btn_save configure -text [::llm_ui::logic::mc "Save Prompts"]
+            $f.btn_save configure -text [::llm_ui::logic::mc "Save all settings"]
         }
 
         method OnLanguageSelected {} {
@@ -424,6 +453,12 @@ namespace eval ::llm_ui {
             foreach {k v} $p { if {$k eq "name"} { set current_p_name $v } elseif {$k eq "base_url"} { set url $v } elseif {$k eq "api_key"} { set key $v } }
             $w.config.ek delete 0 end; $w.config.ek insert 0 $key
 
+            if {$key ne ""} {
+                $w.config.ek configure -state readonly
+            } else {
+                $w.config.ek configure -state normal
+            }
+
             set sp $system_prompt
             if {$sp eq ""} { set sp $default_prompt }
 
@@ -432,27 +467,115 @@ namespace eval ::llm_ui {
         }
 
         method ChangeKey {} {
-            set key [$w.config.ek get]
-            set idx [my FindProviderIdx $current_p_name]
+            $w.config.ek configure -state normal
+            focus $w.config.ek
+        }
+
+        method AddProvider {} {
+            set top .add_provider_popup
+            if {[winfo exists $top]} { destroy $top }
+            toplevel $top
+            wm title $top [::llm_ui::logic::mc "Add Provider"]
+            wm transient $top .
+
+            set f [ttk::frame $top.f]
+            pack $f -padx 10 -pady 10 -fill both -expand yes
+
+            ttk::label $f.ln -text [::llm_ui::logic::mc "Provider Name"]
+            set en [ttk::entry $f.en]
+            grid $f.ln -row 0 -column 0 -sticky e -padx 5 -pady 5
+            grid $en -row 0 -column 1 -sticky ew -padx 5 -pady 5
+
+            ttk::label $f.lu -text [::llm_ui::logic::mc "Base URL"]
+            set eu [ttk::entry $f.eu]
+            grid $f.lu -row 1 -column 0 -sticky e -padx 5 -pady 5
+            grid $eu -row 1 -column 1 -sticky ew -padx 5 -pady 5
+
+            ttk::label $f.lk -text [::llm_ui::logic::mc "API Key"]
+            set ek [ttk::entry $f.ek -show "*"]
+            grid $f.lk -row 2 -column 0 -sticky e -padx 5 -pady 5
+            grid $ek -row 2 -column 1 -sticky ew -padx 5 -pady 5
+
+            set bf [ttk::frame $f.bf]
+            grid $bf -row 3 -column 0 -columnspan 2 -sticky e -padx 5 -pady 5
+
+            ttk::button $bf.cancel -text [::llm_ui::logic::mc "Cancel"] -command [list destroy $top]
+            ttk::button $bf.ok -text [::llm_ui::logic::mc "OK"] -command [list [self] TestAndAddProvider $top $en $eu $ek]
+            pack $bf.cancel $bf.ok -side left -padx 5
+
+            grid columnconfigure $f 1 -weight 1
+        }
+
+        method TestAndAddProvider {top en eu ek} {
+            set name [string trim [$en get]]
+            set url [string trim [$eu get]]
+            set key [string trim [$ek get]]
+
+            if {$name eq "" || $url eq ""} {
+                ::ttk::messagebox::show $top [::llm_ui::logic::mc "Add Provider Error"] [::llm_ui::logic::mc "Invalid input."] "error"
+                return
+            }
+
+            $top.f.bf.ok configure -state disabled
+            $top.f.bf.cancel configure -state disabled
+
+            # Simple test by fetching models
+            set test_url "$url/models"
+            set headers [list \
+                "Authorization" "Bearer $key" \
+                "Accept" "application/json" \
+                "User-Agent" "Tcl/Tk LLM Client" \
+            ]
+
+            if {[catch {
+                set token [http::geturl $test_url -headers $headers -timeout 10000]
+                set ncode [http::ncode $token]
+                set res [encoding convertfrom utf-8 [http::data $token]]
+                http::cleanup $token
+
+                if {$ncode != 200} {
+                    error "HTTP $ncode: $res"
+                }
+
+                set ids [::llm_ui::logic::extract_ids $res "id"]
+
+                set new_p [list name $name base_url $url api_key $key models $ids]
+                lappend providers_data $new_p
+                my SavePreferences
+
+                set p_names {}
+                foreach p $providers_data { foreach {k v} $p { if {$k eq "name"} { lappend p_names $v; break } } }
+                $cb_p configure -values $p_names
+                $cb_p set $name
+                my OnProviderSelected $cb_p
+
+                destroy $top
+            } err]} {
+                $top.f.bf.ok configure -state normal
+                $top.f.bf.cancel configure -state normal
+                ::ttk::messagebox::show $top [::llm_ui::logic::mc "Add Provider Error"] "[::llm_ui::logic::mc "Test connection failed."]\n$err" "error"
+            }
+        }
+
+        method SaveAllSettings {} {
+            set idx [$cb_p current]
             if {$idx != -1} {
+                set key [$w.config.ek get]
                 set p [lindex $providers_data $idx]
                 set new_p {}
                 foreach {k v} $p { if {$k eq "api_key"} { lappend new_p $k $key } else { lappend new_p $k $v } }
                 set providers_data [lreplace $providers_data $idx $idx $new_p]
-                my SavePreferences
                 $chatW configure -api_key $key
-                my RefreshModels
             }
-        }
 
-        method SavePrompts {} {
             set default_prompt [string trim [$def_p_text get 1.0 end]]
             set system_prompt [string trim [$sys_p_text get 1.0 end]]
-            my SavePreferences default_prompt $default_prompt system_prompt $system_prompt
             
             set sp $system_prompt
             if {$sp eq ""} { set sp $default_prompt }
             $chatW configure -system_prompt $sp
+
+            my SavePreferences default_prompt $default_prompt system_prompt $system_prompt
         }
 
         method RefreshModels {} {
@@ -527,7 +650,7 @@ namespace eval ::llm_ui {
             $chatW configure -model $model
             my SavePreferences
         }
-        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SavePrompts UpdateTranslations SavePreferences
+        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SaveAllSettings UpdateTranslations SavePreferences AddProvider TestAndAddProvider
     }
 
     proc SettingsWidget {path chatWidget args} {

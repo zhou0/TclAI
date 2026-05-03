@@ -14,7 +14,7 @@ namespace eval ttk::m3 {
         ttk::style configure M3NavRail.ExpandedActive.TLabel -background "#FEF7FF" -foreground "#1D1B20" -font {Helvetica 10 bold} -anchor w
     }
 
-    oo::class create NavRailClass {
+    ::oo::class create NavRailClass {
         variable w container items selected state options
 
         constructor {path args} {

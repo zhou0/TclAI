@@ -89,19 +89,27 @@ namespace eval ::llm_ui {
             foreach m $full_messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             set messages_json "\[[join $m_list ,]\]"
             
-            set body "\x7b\"model\": \"$options(-model)\", \"messages\": $messages_json, \"stream\": false, \"max_tokens\": 1024, \"temperature\": 1, \"top_p\": 1\x7d"
+            # Using dict to build body for better escaping
+            set body_dict [list \
+                model $options(-model) \
+                messages $messages_json \
+                stream false \
+                max_tokens 1024 \
+                temperature 1 \
+                top_p 1 \
+            ]
+            set body [::llm_ui::logic::json_gen_dict $body_dict]
 
             set headers [list \
-                "Content-Type" "application/json" \
                 "Accept" "application/json" \
-                "Authorization" "Bearer $options(-api_key)" \
-                "User-Agent" "Tcl/Tk LLM Client" \
+                "Authorization" "Bearer [string trim $options(-api_key)]" \
+                "User-Agent" "OpenAI/Python 1.51.2" \
             ]
             
             my AppendHistory "Assistant" "..."
 
             if {[catch {
-                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -timeout 60000]
+                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -type "application/json" -timeout 60000]
                 set status [http::status $token]
                 set ncode [http::ncode $token]
                 set data [encoding convertfrom utf-8 [http::data $token]]
@@ -187,7 +195,7 @@ namespace eval ::llm_ui {
         method LoadHistory {} {
             set data_dir "data"
             if {![file isdirectory $data_dir]} { file mkdir $data_dir }
-            set hist_file [file join "data" "history.json"]
+            set hist_file [file join $data_dir "history.json"]
             if {[file exists $hist_file]} {
                 set fh [open $hist_file r]
                 set json [read $fh]
@@ -251,7 +259,7 @@ namespace eval ::llm_ui {
             set current_p_name ""
             set default_prompt "You are a helpful assistant."
             set system_prompt ""
-            set lastchat {provider "" model ""}
+            set lastchat {provider "" model "" api_key ""}
 
             ttk::frame $w
             my LoadPreferences
@@ -260,47 +268,53 @@ namespace eval ::llm_ui {
 
         method LoadPreferences {} {
             set settings_dir "settings"
+            set data_dir "data"
             set pref_file [file join $settings_dir "preference.json"]
-            set prov_file [file join $settings_dir "providers.json"]
+            set prov_file [file join $data_dir "providers.json"]
+
+            if {[file exists $prov_file]} {
+                set fh [open $prov_file r]; set json [read $fh]; close $fh
+                catch { set providers_data [::llm_ui::logic::json_parse $json] }
+            }
+
+            # Start with an empty list if nothing configured
+            if {[llength $providers_data] == 0} {
+                set providers_data {}
+            }
 
             if {[file exists $pref_file]} {
-                set fh [open $pref_file r]
-                set json [read $fh]
-                close $fh
+                set fh [open $pref_file r]; set json [read $fh]; close $fh
                 if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
                     if {[dict exists $d default_prompt]} { set default_prompt [dict get $d default_prompt] }
                     if {[dict exists $d system_prompt]} { set system_prompt [dict get $d system_prompt] }
                     if {[dict exists $d lastchat]} { set lastchat [dict get $d lastchat] }
-                    if {[dict exists $d providers]} { set providers_data [dict get $d providers] }
-                }
-            }
-            
-            if {[file exists $prov_file]} {
-                set fh [open $prov_file r]
-                set json [read $fh]
-                close $fh
-                if {![catch {set pd [::llm_ui::logic::json_parse $json]}]} {
-                    set providers_data $pd
-                }
-            }
 
-            if {[llength $providers_data] == 0} {
-                set providers_data [list \
-                    [list name "DeepSeek" base_url "https://api.deepseek.com/v1" api_key "" models {}] \
-                    [list name "SiliconFlow" base_url "https://api.siliconflow.cn/v1" api_key "" models {}] \
-                    [list name "Nvidia" base_url "https://integrate.api.nvidia.com/v1" api_key "" models {}] \
-                    [list name "OpenRouter" base_url "https://openrouter.ai/api/v1" api_key "" models {}] \
-                    [list name "Local (Ollama/LM Studio)" base_url "http://localhost:11434/v1" api_key "" models {}] \
-                ]
+                    if {[dict exists $d providers_keys]} {
+                        set keys [dict get $d providers_keys]
+                        set new_pd {}
+                        foreach p $providers_data {
+                            set name [dict get $p name]
+                            if {[dict exists $keys $name]} {
+                                dict set p api_key [dict get $keys $name]
+                            }
+                            lappend new_pd $p
+                        }
+                        set providers_data $new_pd
+                    }
+                }
             }
         }
 
         method SavePreferences {args} {
             set settings_dir "settings"
+            set data_dir "data"
             if {![file isdirectory $settings_dir]} { file mkdir $settings_dir }
+            if {![file isdirectory $data_dir]} { file mkdir $data_dir }
+
             set pref_file [file join $settings_dir "preference.json"]
-            set prov_file [file join $settings_dir "providers.json"]
+            set prov_file [file join $data_dir "providers.json"]
             
+            # Load existing preference to merge
             set d {}
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]; set json [read $fh]; close $fh
@@ -308,17 +322,34 @@ namespace eval ::llm_ui {
             }
             foreach {k v} $args { dict set d $k $v }
             
-            set p_list_json {}
-            foreach p $providers_data { lappend p_list_json [::llm_ui::logic::json_gen_dict $p] }
-            set prov_json_str "\[[join $p_list_json ,]\]"
-            dict set d providers $prov_json_str
+            # 1. Save data/providers.json (List of providers with base_url and models)
+            set p_list_clean {}
+            set p_keys {}
+            foreach p $providers_data {
+                set name [dict get $p name]
+                set key [dict get $p api_key]
+                dict set p_keys $name $key
+
+                set p_clean $p
+                if {[dict exists $p_clean api_key]} { dict unset p_clean api_key }
+                lappend p_list_clean [::llm_ui::logic::json_gen_dict $p_clean]
+            }
+            set prov_json_str "\[[join $p_list_clean ,]\]"
+            set fh [open $prov_file w]; puts $fh $prov_json_str; close $fh
+
+            dict set d providers_keys [::llm_ui::logic::json_gen_dict $p_keys]
 
             set lc_provider $current_p_name
             if {$lc_provider eq "" && [dict exists $d lastchat provider]} { set lc_provider [dict get $d lastchat provider] }
             set lc_model ""
             if {[info exists cb_m] && [winfo exists $cb_m]} { set lc_model [$cb_m get] }
             if {$lc_model eq "" && [dict exists $d lastchat model]} { set lc_model [dict get $d lastchat model] }
-            dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model]]
+
+            set lc_key ""
+            set p_idx [my FindProviderIdx $lc_provider]
+            if {$p_idx != -1} { set lc_key [dict get [lindex $providers_data $p_idx] api_key] }
+
+            dict set d lastchat [::llm_ui::logic::json_gen_dict [list provider $lc_provider model $lc_model api_key $lc_key]]
 
             set fh [open $pref_file w]; puts $fh [::llm_ui::logic::json_gen_dict $d]; close $fh
             set fh [open $prov_file w]; puts $fh $prov_json_str; close $fh
@@ -522,13 +553,13 @@ namespace eval ::llm_ui {
             # Simple test by fetching models
             set test_url "$url/models"
             set headers [list \
-                "Authorization" "Bearer $key" \
+                "Authorization" "Bearer [string trim $key]" \
                 "Accept" "application/json" \
-                "User-Agent" "Tcl/Tk LLM Client" \
+                "User-Agent" "OpenAI/Python 1.51.2" \
             ]
 
             if {[catch {
-                set token [http::geturl $test_url -headers $headers -timeout 10000]
+                set token [http::geturl $test_url -headers $headers -type "application/json" -timeout 10000]
                 set ncode [http::ncode $token]
                 set res [encoding convertfrom utf-8 [http::data $token]]
                 http::cleanup $token
@@ -602,11 +633,11 @@ namespace eval ::llm_ui {
         method FetchModels {base_url} {
             set url "$base_url/models"
             set headers [list \
-                "Authorization" "Bearer [$chatW cget -api_key]" \
+                "Authorization" "Bearer [string trim [$chatW cget -api_key]]" \
                 "Accept" "application/json" \
-                "User-Agent" "Tcl/Tk LLM Client" \
+                "User-Agent" "OpenAI/Python 1.51.2" \
             ]
-            if {[catch {http::geturl $url -headers $headers -timeout 10000} token]} {
+            if {[catch {http::geturl $url -headers $headers -type "application/json" -timeout 10000} token]} {
                 set err_msg "Failed to fetch models: $token"
                 my UpdateModelList {}
                 ::ttk::messagebox::show $w [::llm_ui::logic::mc "Fetch Error"] $err_msg "error"

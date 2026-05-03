@@ -1,3 +1,4 @@
+encoding system utf-8
 set script_dir [file dirname [info script]]
 lappend auto_path [file join $script_dir lib]
 

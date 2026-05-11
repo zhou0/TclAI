@@ -29,3 +29,5 @@
 ::msgcat::mcset zh_cn "Invalid input." "输入无效。"
 ::msgcat::mcset zh_cn "Test connection failed." "测试连接失败。"
 ::msgcat::mcset zh_cn "Use Streaming" "使用流式传输"
+::msgcat::mcset zh_cn "Copy Answer" "复制回答"
+::msgcat::mcset zh_cn "Copy Answer as Image" "复制回答为图片"

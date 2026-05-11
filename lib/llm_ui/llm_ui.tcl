@@ -67,11 +67,19 @@ namespace eval ::llm_ui {
             $history configure -state normal
             if {$role eq "Assistant" && $msg eq "..."} {
                 set last_assistant_marker [$history index "end - 1c"]
+                $history insert end "$role: $msg\n\n"
+            } else {
+                $history insert end "$role: $msg\n"
+                if {$role eq "Assistant"} {
+                    my AddMessageButtons $msg
+                } else {
+                    $history insert end "\n"
+                }
             }
-            $history insert end "$role: $msg\n\n"
             $history configure -state disabled
             $history yview end
         }
+
 
         method CallAPI {} {
             if {$options(-api_key) eq "" && ![string match "*localhost*" $options(-base_url)]} {
@@ -193,6 +201,38 @@ namespace eval ::llm_ui {
             $history yview end
         }
 
+        method CopyText {txt} {
+            clipboard clear
+            clipboard append $txt
+        }
+
+        method CopyAsImage {txt} {
+            set filename [tk_getSaveFile -defaultextension ".png" -filetypes {{"PNG Files" ".png"} {"All Files" "*.*"}}]
+            if {$filename eq ""} return
+
+            set temp_top .temp_render
+            if {[winfo exists $temp_top]} { destroy $temp_top }
+            toplevel $temp_top
+            wm withdraw $temp_top
+
+            set c [canvas $temp_top.c -bg white]
+            set tid [$c create text 10 10 -text $txt -anchor nw -width 600 -font {Helvetica 12}]
+            set bbox [$c bbox $tid]
+            set w [expr {[lindex $bbox 2] + 20}]
+            set h [expr {[lindex $bbox 3] + 20}]
+            $c configure -width $w -height $h
+
+            update idletasks
+
+            set img [image create photo -format window -data $c]
+            if {[catch {$img write $filename -format png} err]} {
+                ::ttk::messagebox::show $w "Error" "Failed to save image: $err" "error"
+            }
+
+            image delete $img
+            destroy $temp_top
+        }
+
         method ShowJSON {json} {
             set top .json_popup
             if {[winfo exists $top]} { destroy $top }
@@ -214,6 +254,25 @@ namespace eval ::llm_ui {
             $txt configure -state disabled
         }
 
+        method AddMessageButtons {msg {json ""}} {
+            set f_path "$history.f_[clock clicks]_[expr {int(rand()*1000)}]"
+            ttk::frame $f_path
+
+            ttk::button $f_path.copy -text [::llm_ui::logic::mc "Copy Answer"] -command [list [self] CopyText $msg] -padding 2
+            ttk::button $f_path.copyimg -text [::llm_ui::logic::mc "Copy Answer as Image"] -command [list [self] CopyAsImage $msg] -padding 2
+            pack $f_path.copy $f_path.copyimg -side left -padx 2
+
+            if {$json ne ""} {
+                ttk::button $f_path.showjson -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $json] -padding 2
+                pack $f_path.showjson -side right -padx 2
+            }
+
+            set btn_idx [$history index "end - 1c"]
+            $history window create end -window $f_path -padx 5
+            $history tag add right_aligned "$btn_idx linestart" "$btn_idx lineend"
+            $history insert end "\n\n"
+        }
+
         method UpdateLastHistory {msg} {
             $history configure -state normal
             if {$last_assistant_marker ne ""} {
@@ -221,18 +280,13 @@ namespace eval ::llm_ui {
             }
             $history insert end "Assistant: $msg\n"
 
-            set btn_path "$history.btn_[clock clicks]"
-            ttk::button $btn_path -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $last_raw_json] -padding 2
-
-            set btn_idx [$history index "end - 1c"]
-            $history window create end -window $btn_path -padx 5
-            $history tag add right_aligned "$btn_idx linestart" "$btn_idx lineend"
-            $history insert end "\n\n"
+            my AddMessageButtons $msg $last_raw_json
 
             $history configure -state disabled
             $history yview end
             set last_assistant_marker ""
         }
+
 
         method LoadHistory {} {
             set data_dir "data"
@@ -276,7 +330,7 @@ namespace eval ::llm_ui {
 
         method cget {key} { return $options($key) }
 
-        export configure cget SendMessage UpdateTranslations ShowJSON
+        export configure cget SendMessage UpdateTranslations ShowJSON CopyText CopyAsImage AddMessageButtons
     }
 
     ::oo::class create SettingsWidgetClass {

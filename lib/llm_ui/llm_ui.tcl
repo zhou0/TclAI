@@ -1,13 +1,15 @@
 package provide llm_ui 0.1
 
 package require Tk
-package require TclOO
+package require http
 package require llm_ui::logic
 package require ttk::messagebox
 
 namespace eval ::llm_ui {
+    variable use_streaming 1
+
     ::oo::class create ChatWidgetClass {
-        variable w history input send options messages last_raw_json last_assistant_marker
+        variable w history input send options messages last_raw_json last_assistant_marker sse_buffer accumulated_data stream_token
 
         constructor {path args} {
             set w $path
@@ -16,6 +18,10 @@ namespace eval ::llm_ui {
             set messages {}
             set last_raw_json ""
             set last_assistant_marker ""
+            set options(-stream) 1
+            set sse_buffer ""
+            set accumulated_data ""
+            set stream_token ""
             set options(-provider) ""
             set options(-base_url) ""
             set options(-api_key) ""
@@ -89,11 +95,10 @@ namespace eval ::llm_ui {
             foreach m $full_messages { lappend m_list [::llm_ui::logic::json_gen_dict $m] }
             set messages_json "\[[join $m_list ,]\]"
             
-            # Using dict to build body for better escaping
             set body_dict [list \
                 model $options(-model) \
                 messages $messages_json \
-                stream false \
+                stream [expr {$options(-stream) ? "true" : "false"}] \
                 max_tokens 1024 \
                 temperature 1 \
                 top_p 1 \
@@ -108,46 +113,84 @@ namespace eval ::llm_ui {
             
             my AppendHistory "Assistant" "..."
 
-            if {[catch {
-                set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -type "application/json" -timeout 60000]
-                set status [http::status $token]
-                set ncode [http::ncode $token]
-                set data [encoding convertfrom utf-8 [http::data $token]]
-                http::cleanup $token
+            set sse_buffer ""
+            set accumulated_data ""
 
-                set last_raw_json $data
-
-                if {$ncode != 200} {
-                    set err_msg "Error: $ncode - $data"
-                    my UpdateLastHistory $err_msg
-                    ::ttk::messagebox::show $w [::llm_ui::logic::mc "API Error"] $err_msg "error"
-                } else {
-                    set content ""
-                    set pattern "\"content\":\\s*\"((?:\[^\"\\\\]|\\\\.)*)\""
-                    if {[regexp $pattern $data match content]} {
-                         set content [::llm_ui::logic::unescape_json $content]
-                         my UpdateLastHistory $content
-                         lappend messages [list role "assistant" content $content]
-                         my SaveHistory
+            if {$options(-stream)} {
+                if {[catch {
+                    set stream_token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] \
+                        -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
+                } err]} {
+                    my UpdateLastHistory "Error: $err"
+                }
+            } else {
+                if {[catch {
+                    set token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -type "application/json" -timeout 60000]
+                    set ncode [http::ncode $token]
+                    set data [encoding convertfrom utf-8 [http::data $token]]
+                    http::cleanup $token
+                    set last_raw_json $data
+                    if {$ncode != 200} {
+                        my UpdateLastHistory "Error: $ncode - $data"
                     } else {
-                        set pattern "\"text\":\\s*\"((?:\[^\"\\\\]|\\\\.)*)\""
+                        set content ""
+                        set pattern "\"content\":\\s*\"((?:\[^\"\\\\\]|\\\\.)*)\""
                         if {[regexp $pattern $data match content]} {
                              set content [::llm_ui::logic::unescape_json $content]
                              my UpdateLastHistory $content
                              lappend messages [list role "assistant" content $content]
                              my SaveHistory
                         } else {
-                             set err_msg [::llm_ui::logic::mc "Error: Could not parse response content."]
-                             my UpdateLastHistory $err_msg
-                             ::ttk::messagebox::show $w [::llm_ui::logic::mc "Parse Error"] $err_msg "error"
+                             my UpdateLastHistory [::llm_ui::logic::mc "Error: Could not parse response content."]
                         }
                     }
+                } err]} {
+                    my UpdateLastHistory "Error: $err"
                 }
-            } err]} {
-                set err_msg "Error: $err"
-                my UpdateLastHistory $err_msg
-                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Connection Error"] $err_msg "error"
             }
+        }
+
+        method SSEHandler {sock token} {
+            set chunk [read $sock]
+            append accumulated_data $chunk
+            set payloads [::llm_ui::logic::parse_sse $chunk sse_buffer]
+            foreach p $payloads {
+                set pattern "\"content\":\\s*\"((?:\[^\"\\\\\]|\\\\.)*)\""
+                if {[regexp $pattern $p match content]} {
+                    set content [::llm_ui::logic::unescape_json $content]
+                    my AppendAssistantContent $content
+                }
+            }
+            return [string length $chunk]
+        }
+
+        method APIComplete {token} {
+            set ncode [http::ncode $token]
+            set last_raw_json $accumulated_data
+            if {$ncode != 200} {
+                my UpdateLastHistory "Error: $ncode - $accumulated_data"
+            } else {
+                $history configure -state normal
+                set assistant_msg ""
+                set payloads [::llm_ui::logic::parse_sse "" sse_buffer]
+                if {$last_assistant_marker ne ""} {
+                    set assistant_msg [string range [$history get $last_assistant_marker "end - 1c"] 11 end]
+                    set assistant_msg [string trim $assistant_msg]
+                    lappend messages [list role "assistant" content $assistant_msg]
+                    my SaveHistory
+                }
+                my UpdateLastHistory $assistant_msg
+            }
+            http::cleanup $token
+        }
+
+        method AppendAssistantContent {content} {
+            $history configure -state normal
+            if {$last_assistant_marker ne ""} {
+                $history insert "end - 1c" $content
+            }
+            $history configure -state disabled
+            $history yview end
         }
 
         method ShowJSON {json} {
@@ -181,7 +224,6 @@ namespace eval ::llm_ui {
             set btn_path "$history.btn_[clock clicks]"
             ttk::button $btn_path -text [::llm_ui::logic::mc "Show full response data"] -command [list [self] ShowJSON $last_raw_json] -padding 2
 
-            # Use a separate line for the button to justify it independently
             set btn_idx [$history index "end - 1c"]
             $history window create end -window $btn_path -padx 5
             $history tag add right_aligned "$btn_idx linestart" "$btn_idx lineend"
@@ -199,8 +241,7 @@ namespace eval ::llm_ui {
             if {[file exists $hist_file]} {
                 set fh [open $hist_file r]
                 fconfigure $fh -encoding utf-8
-                set json [read $fh]
-                close $fh
+                set json [read $fh]; close $fh
                 if {![catch {set data [::llm_ui::logic::json_parse $json]}]} {
                     set messages $data
                     foreach m $messages {
@@ -238,21 +279,8 @@ namespace eval ::llm_ui {
         export configure cget SendMessage UpdateTranslations ShowJSON
     }
 
-    proc ChatWidget {path args} {
-        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
-        rename $path ::$path:widget
-        proc ::$path {cmd args} [format {
-            set obj ::%s:obj
-            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
-                return [$obj $cmd {*}$args]
-            }
-            return [::%s:widget $cmd {*}$args]
-        } $path $path]
-        return $path
-    }
-
     ::oo::class create SettingsWidgetClass {
-        variable w chatW providers_data current_p_name cb_p cb_m def_p_text sys_p_text cb_lang default_prompt lastchat system_prompt
+        variable w chatW providers_data current_p_name cb_p cb_m def_p_text sys_p_text cb_lang default_prompt lastchat system_prompt cb_stream
 
         constructor {path chatWidget args} {
             set w $path
@@ -261,6 +289,7 @@ namespace eval ::llm_ui {
             set current_p_name ""
             set default_prompt "You are a helpful assistant."
             set system_prompt ""
+            set ::llm_ui::use_streaming 1
             set lastchat {provider "" model "" api_key ""}
 
             ttk::frame $w
@@ -288,6 +317,7 @@ namespace eval ::llm_ui {
                 if {![catch {set d [::llm_ui::logic::json_parse $json]}]} {
                     if {[dict exists $d default_prompt]} { set default_prompt [dict get $d default_prompt] }
                     if {[dict exists $d system_prompt]} { set system_prompt [dict get $d system_prompt] }
+                    if {[dict exists $d use_streaming]} { set ::llm_ui::use_streaming [dict get $d use_streaming] }
                     if {[dict exists $d lastchat]} { set lastchat [dict get $d lastchat] }
 
                     if {[dict exists $d providers_keys]} {
@@ -315,7 +345,6 @@ namespace eval ::llm_ui {
             set pref_file [file join $settings_dir "preference.json"]
             set prov_file [file join $data_dir "providers.json"]
             
-            # Load existing preference to merge
             set d {}
             if {[file exists $pref_file]} {
                 set fh [open $pref_file r]
@@ -325,14 +354,12 @@ namespace eval ::llm_ui {
             }
             foreach {k v} $args { dict set d $k $v }
             
-            # 1. Save data/providers.json (List of providers with base_url and models)
             set p_list_clean {}
             set p_keys {}
             foreach p $providers_data {
                 set name [dict get $p name]
                 set key [dict get $p api_key]
                 dict set p_keys $name $key
-
                 set p_clean $p
                 if {[dict exists $p_clean api_key]} { dict unset p_clean api_key }
                 lappend p_list_clean [::llm_ui::logic::json_gen_dict $p_clean]
@@ -377,6 +404,12 @@ namespace eval ::llm_ui {
             pack $f -fill both -expand yes -padx 10 -pady 10
 
             set row 0
+            ttk::label $f.lstream -text [::llm_ui::logic::mc "Use Streaming"]
+            grid $f.lstream -row $row -column 0 -sticky e -padx 5 -pady 5
+            set cb_stream [ttk::checkbutton $f.cbstream -variable ::llm_ui::use_streaming]
+            grid $f.cbstream -row $row -column 1 -sticky w -padx 5 -pady 5
+            incr row
+
             ttk::label $f.llang -text [::llm_ui::logic::mc "Language"]
             grid $f.llang -row $row -column 0 -sticky e -padx 5 -pady 5
             set current_locale [::msgcat::mclocale]
@@ -456,6 +489,7 @@ namespace eval ::llm_ui {
         method UpdateTranslations {} {
             set f $w.config
             $f configure -text [::llm_ui::logic::mc "Settings"]
+            $f.lstream configure -text [::llm_ui::logic::mc "Use Streaming"]
             $f.llang configure -text [::llm_ui::logic::mc "Language"]
             $f.lp configure -text [::llm_ui::logic::mc "Provider"]
             $f.btn_add_p configure -text [::llm_ui::logic::mc "Add provider"]
@@ -499,7 +533,7 @@ namespace eval ::llm_ui {
             set sp $system_prompt
             if {$sp eq ""} { set sp $default_prompt }
 
-            $chatW configure -provider $current_p_name -base_url $url -api_key $key -system_prompt $sp
+            $chatW configure -provider $current_p_name -base_url $url -api_key $key -system_prompt $sp -stream $::llm_ui::use_streaming
             my RefreshModels
         }
 
@@ -556,7 +590,6 @@ namespace eval ::llm_ui {
             $top.f.bf.ok configure -state disabled
             $top.f.bf.cancel configure -state disabled
 
-            # Simple test by fetching models
             set test_url "$url/models"
             set headers [list \
                 "Authorization" "Bearer [string trim $key]" \
@@ -610,9 +643,10 @@ namespace eval ::llm_ui {
             
             set sp $system_prompt
             if {$sp eq ""} { set sp $default_prompt }
+            $chatW configure -stream $::llm_ui::use_streaming
             $chatW configure -system_prompt $sp
 
-            my SavePreferences default_prompt $default_prompt system_prompt $system_prompt
+            my SavePreferences default_prompt $default_prompt system_prompt $system_prompt use_streaming $::llm_ui::use_streaming
         }
 
         method RefreshModels {} {
@@ -688,6 +722,19 @@ namespace eval ::llm_ui {
             my SavePreferences
         }
         export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SaveAllSettings UpdateTranslations SavePreferences AddProvider TestAndAddProvider
+    }
+
+    proc ChatWidget {path args} {
+        set obj [ChatWidgetClass create ::$path:obj $path {*}$args]
+        rename $path ::$path:widget
+        proc ::$path {cmd args} [format {
+            set obj ::%s:obj
+            if {[lsearch -exact [info object methods $obj -all] $cmd] != -1} {
+                return [$obj $cmd {*}$args]
+            }
+            return [::%s:widget $cmd {*}$args]
+        } $path $path]
+        return $path
     }
 
     proc SettingsWidget {path chatWidget args} {

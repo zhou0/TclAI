@@ -28,3 +28,4 @@
 ::msgcat::mcset zh_cn "Add Provider Error" "添加服务商错误"
 ::msgcat::mcset zh_cn "Invalid input." "输入无效。"
 ::msgcat::mcset zh_cn "Test connection failed." "测试连接失败。"
+::msgcat::mcset zh_cn "Use Streaming" "使用流式传输"

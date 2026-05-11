@@ -143,12 +143,12 @@ namespace eval ::llm_ui::logic {
 
     proc extract_ids {json key} {
         set ids {}
-        set pattern "\"$key\":\\s*\"(\x5b^\x22\x5d+)\""
+        set pattern "\"$key\":\\s*\"([^\"]+)\""
         set matches [regexp -all -inline $pattern $json]
         foreach {full match} $matches { lappend ids $match }
 
         if {[llength $ids] == 0} {
-             set pattern "\"(\x5b^\x22\x5d+)\""
+             set pattern "\"([^\"]+)\""
              set matches [regexp -all -inline $pattern $json]
              foreach {full match} $matches {
                 if {$match ne "id" && $match ne "object" && $match ne "models" && $match ne "data"} {
@@ -215,5 +215,24 @@ namespace eval ::llm_ui::logic {
             }
         }
         return $result
+    }
+
+    proc parse_sse {data buffer_var} {
+        upvar 1 $buffer_var buffer
+        append buffer $data
+        set results {}
+        while {[regexp -indices "\n" $buffer range]} {
+            set end [lindex $range 0]
+            set line [string range $buffer 0 $end]
+            set buffer [string range $buffer [expr {$end + 1}] end]
+            set line [string trim $line]
+            if {[string match "data: *" $line]} {
+                set payload [string trim [string range $line 5 end]]
+                if {$payload ne "\[DONE\]" && $payload ne ""} {
+                    lappend results $payload
+                }
+            }
+        }
+        return $results
     }
 }

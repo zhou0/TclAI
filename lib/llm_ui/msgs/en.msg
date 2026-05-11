@@ -28,3 +28,4 @@
 ::msgcat::mcset en "Add Provider Error" "Add Provider Error"
 ::msgcat::mcset en "Invalid input." "Invalid input."
 ::msgcat::mcset en "Test connection failed." "Test connection failed."
+::msgcat::mcset en "Use Streaming" "Use Streaming"

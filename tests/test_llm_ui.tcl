@@ -14,6 +14,7 @@ namespace eval ttk {
     proc button {path args} { proc ::$path {args} {}; return $path }
     proc entry {path args} { proc ::$path {args} {}; return $path }
     proc combobox {path args} { proc ::$path {args} {}; return $path }
+    proc checkbutton {path args} { proc ::$path {args} {}; return $path }
     namespace eval style { proc configure {args} {}; proc lookup {args} { return "" } }
     namespace eval messagebox { proc show {args} {} }
 }

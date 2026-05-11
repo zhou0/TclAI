@@ -20,7 +20,9 @@ jobs:
 
       - name: Install Tcl (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y tcl tcl-dev tk-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tcl tcl-dev tk-dev
 
       - name: Install Tcl (macOS)
         if: matrix.os == 'macos-latest'
@@ -58,4 +60,6 @@ jobs:
             TCLSH=tclsh
           fi
           $TCLSH tests/test_navrail.tcl
+          $TCLSH tests/test_llm_logic.tcl
+          $TCLSH tests/test_sse_streaming.tcl
           $TCLSH tests/test_llm_ui.tcl

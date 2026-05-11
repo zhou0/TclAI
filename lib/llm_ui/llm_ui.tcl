@@ -322,15 +322,15 @@ namespace eval ::llm_ui {
 
                     if {[dict exists $d providers_keys]} {
                         set keys [dict get $d providers_keys]
-                        set new_pd {}
+                        set new_p {}
                         foreach p $providers_data {
                             set name [dict get $p name]
                             if {[dict exists $keys $name]} {
                                 dict set p api_key [dict get $keys $name]
                             }
-                            lappend new_pd $p
+                            lappend new_p $p
                         }
-                        set providers_data $new_pd
+                        set providers_data $new_p
                     }
                 }
             }

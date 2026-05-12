@@ -607,17 +607,17 @@ namespace eval ::llm_ui {
             pack $f -padx 10 -pady 10 -fill both -expand yes
 
             ttk::label $f.ln -text [::llm_ui::logic::mc "Provider Name"]
-            set en [ttk::entry $f.en]
+            set en [ttk::entry $f.en -width 64]
             grid $f.ln -row 0 -column 0 -sticky e -padx 5 -pady 5
             grid $en -row 0 -column 1 -sticky ew -padx 5 -pady 5
 
             ttk::label $f.lu -text [::llm_ui::logic::mc "Base URL"]
-            set eu [ttk::entry $f.eu]
+            set eu [ttk::entry $f.eu -width 64]
             grid $f.lu -row 1 -column 0 -sticky e -padx 5 -pady 5
             grid $eu -row 1 -column 1 -sticky ew -padx 5 -pady 5
 
             ttk::label $f.lk -text [::llm_ui::logic::mc "API Key"]
-            set ek [ttk::entry $f.ek -show "*"]
+            set ek [ttk::entry $f.ek -show "*" -width 64]
             grid $f.lk -row 2 -column 0 -sticky e -padx 5 -pady 5
             grid $ek -row 2 -column 1 -sticky ew -padx 5 -pady 5
 

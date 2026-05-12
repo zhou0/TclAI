@@ -14,6 +14,11 @@ namespace eval ::llm_ui::logic {
 
     if {[info commands ::tls::socket] ne ""} {
         http::register https 443 [list ::tls::socket -autoservername 1]
+        http::register HTTPS 443 [list ::tls::socket -autoservername 1]
+    }
+
+    proc is_https_available {} {
+        return [expr {[info commands ::tls::socket] ne ""}]
     }
 
     proc mc {src} {

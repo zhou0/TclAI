@@ -31,3 +31,4 @@
 ::msgcat::mcset zh_tw "Use Streaming" "使用流式傳輸"
 ::msgcat::mcset zh_tw "Copy Answer" "複製回答"
 ::msgcat::mcset zh_tw "Copy Answer as Image" "複製回答為圖片"
+::msgcat::mcset zh_tw "HTTPS requires the 'tls' package, which is not installed." "HTTPS 需要 'tls' 軟體包，但尚未安裝。"

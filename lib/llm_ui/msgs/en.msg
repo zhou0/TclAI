@@ -31,3 +31,4 @@
 ::msgcat::mcset en "Use Streaming" "Use Streaming"
 ::msgcat::mcset en "Copy Answer" "Copy Answer"
 ::msgcat::mcset en "Copy Answer as Image" "Copy Answer as Image"
+::msgcat::mcset en "HTTPS requires the 'tls' package, which is not installed." "HTTPS requires the 'tls' package, which is not installed."

@@ -96,6 +96,9 @@ namespace eval ::llm_ui {
             }
 
             set url "$options(-base_url)/chat/completions"
+            if {[string match -nocase "https://*" $url] && ![::llm_ui::logic::is_https_available]} {
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
+            }
             set sys_msg [list role "system" content $options(-system_prompt)]
             set full_messages [linsert $messages 0 $sys_msg]
             
@@ -207,30 +210,57 @@ namespace eval ::llm_ui {
         }
 
         method CopyAsImage {txt} {
-            set filename [tk_getSaveFile -defaultextension ".png" -filetypes {{"PNG Files" ".png"} {"All Files" "*.*"}}]
+            set filetypes [list \
+                [list [::llm_ui::logic::mc "PNG Files"] ".png"] \
+                [list [::llm_ui::logic::mc "PostScript Files"] ".ps"] \
+                [list [::llm_ui::logic::mc "All Files"] "*"] \
+            ]
+            set filename [tk_getSaveFile -defaultextension ".png" -filetypes $filetypes]
             if {$filename eq ""} return
 
             set temp_top .temp_render
-            if {[winfo exists $temp_top]} { destroy $temp_top }
-            toplevel $temp_top
-            wm withdraw $temp_top
+            if {[catch {
+                if {[winfo exists $temp_top]} { destroy $temp_top }
+                toplevel $temp_top
+                wm title $temp_top [::llm_ui::logic::mc "Rendering Answer..."]
 
-            set c [canvas $temp_top.c -bg white]
-            set tid [$c create text 10 10 -text $txt -anchor nw -width 600 -font {Helvetica 12}]
-            set bbox [$c bbox $tid]
-            set w [expr {[lindex $bbox 2] + 20}]
-            set h [expr {[lindex $bbox 3] + 20}]
-            $c configure -width $w -height $h
+                set c [canvas $temp_top.c -bg white -highlightthickness 0]
+                set tid [$c create text 10 10 -text $txt -anchor nw -width 600 -font {Helvetica 12}]
+                set bbox [$c bbox $tid]
+                set cw [expr {[lindex $bbox 2] + 20}]
+                set ch [expr {[lindex $bbox 3] + 20}]
+                $c configure -width $cw -height $ch
+                pack $c
 
-            update idletasks
+                update idletasks
 
-            set img [image create photo -format window -data $c]
-            if {[catch {$img write $filename -format png} err]} {
-                ::ttk::messagebox::show $w "Error" "Failed to save image: $err" "error"
+                if {[string match -nocase "*.ps" $filename]} {
+                    $c postscript -file $filename
+                } else {
+                    # Attempt PNG export
+                    if {[catch {
+                        # Modern Tk with Img package
+                        package require Img
+                        set img [image create photo -format window -data $c]
+                        $img write $filename -format png
+                        image delete $img
+                    } err]} {
+                        # Fallback for some Tk 8.6 environments that might support 'copy' from window
+                        if {[catch {
+                            set img [image create photo]
+                            $img copy $c
+                            $img write $filename -format png
+                            image delete $img
+                        } err2]} {
+                             error [::llm_ui::logic::mc "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead."]
+                        }
+                    }
+                }
+                destroy $temp_top
+            } err]} {
+                if {[winfo exists $temp_top]} { destroy $temp_top }
+                ::ttk::messagebox::show $w [::llm_ui::logic::mc "Export Error"] $err "error"
             }
-
-            image delete $img
-            destroy $temp_top
         }
 
         method ShowJSON {json} {
@@ -330,6 +360,7 @@ namespace eval ::llm_ui {
 
         method cget {key} { return $options($key) }
 
+        export SSEHandler APIComplete CallAPI AppendHistory UpdateLastHistory AppendAssistantContent AddMessageButtons
         export configure cget SendMessage UpdateTranslations ShowJSON CopyText CopyAsImage AddMessageButtons
     }
 
@@ -645,6 +676,9 @@ namespace eval ::llm_ui {
             $top.f.bf.cancel configure -state disabled
 
             set test_url "$url/models"
+            if {[string match -nocase "https://*" $test_url] && ![::llm_ui::logic::is_https_available]} {
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
+            }
             set headers [list \
                 "Authorization" "Bearer [string trim $key]" \
                 "Accept" "application/json" \
@@ -726,6 +760,9 @@ namespace eval ::llm_ui {
 
         method FetchModels {base_url} {
             set url "$base_url/models"
+            if {[string match -nocase "https://*" $url] && ![::llm_ui::logic::is_https_available]} {
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
+            }
             set headers [list \
                 "Authorization" "Bearer [string trim [$chatW cget -api_key]]" \
                 "Accept" "application/json" \

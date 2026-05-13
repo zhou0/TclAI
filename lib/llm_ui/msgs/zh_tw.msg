@@ -32,3 +32,5 @@
 ::msgcat::mcset zh_tw "Copy Answer" "複製回答"
 ::msgcat::mcset zh_tw "Copy Answer as Image" "複製回答為圖片"
 ::msgcat::mcset zh_tw "HTTPS requires the 'tls' package, which is not installed." "HTTPS 需要 'tls' 軟體包，但尚未安裝。"
+::msgcat::mcset zh_tw "Export Error" "導出錯誤"
+::msgcat::mcset zh_tw "Exporting images requires the 'Img' package or Tk 8.6 features not available in this environment." "導出圖片需要 'Img' 軟體包或此環境不具備的 Tk 8.6 功能。"

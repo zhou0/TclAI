@@ -96,6 +96,9 @@ namespace eval ::llm_ui {
             }
 
             set url "$options(-base_url)/chat/completions"
+            if {[string match -nocase "https://*" $url] && ![::llm_ui::logic::is_https_available]} {
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
+            }
             set sys_msg [list role "system" content $options(-system_prompt)]
             set full_messages [linsert $messages 0 $sys_msg]
             
@@ -645,6 +648,9 @@ namespace eval ::llm_ui {
             $top.f.bf.cancel configure -state disabled
 
             set test_url "$url/models"
+            if {[string match -nocase "https://*" $test_url] && ![::llm_ui::logic::is_https_available]} {
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
+            }
             set headers [list \
                 "Authorization" "Bearer [string trim $key]" \
                 "Accept" "application/json" \
@@ -726,6 +732,9 @@ namespace eval ::llm_ui {
 
         method FetchModels {base_url} {
             set url "$base_url/models"
+            if {[string match -nocase "https://*" $url] && ![::llm_ui::logic::is_https_available]} {
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
+            }
             set headers [list \
                 "Authorization" "Bearer [string trim [$chatW cget -api_key]]" \
                 "Accept" "application/json" \

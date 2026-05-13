@@ -238,22 +238,34 @@ namespace eval ::llm_ui {
                     $c postscript -file $filename
                 } else {
                     # Attempt PNG export
-                    if {[catch {
-                        # Modern Tk with Img package
-                        package require Img
-                        set img [image create photo -format window -data $c]
-                        $img write $filename -format png
-                        image delete $img
-                    } err]} {
-                        # Fallback for some Tk 8.6 environments that might support 'copy' from window
-                        if {[catch {
-                            set img [image create photo]
-                            $img copy $c
+                    set success 0
+                    if {![catch {package require Img}]} {
+                        # Map window and wait for it to be drawn for 'window' format to work
+                        wm deiconify $temp_top
+                        raise $temp_top
+                        update idletasks
+                        update
+
+                        if {![catch {
+                            set img [image create photo -format window -data $c]
                             $img write $filename -format png
                             image delete $img
-                        } err2]} {
-                             error [::llm_ui::logic::mc "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead."]
+                            set success 1
+                        } err]} {
+                            # Success
+                        } else {
+                            # Log error if Img is present but failed
+                            puts "Img failed: $err"
                         }
+                    }
+
+                    if {!$success} {
+                         if {[info exists err]} {
+                             error "[::llm_ui::logic::mc "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead."]
+($err)"
+                         } else {
+                             error [::llm_ui::logic::mc "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead."]
+                         }
                     }
                 }
                 destroy $temp_top

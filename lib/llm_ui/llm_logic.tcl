@@ -230,6 +230,8 @@ namespace eval ::llm_ui::logic {
             set end [lindex $range 0]
             set line [string range $buffer 0 $end]
             set buffer [string range $buffer [expr {$end + 1}] end]
+            # Handle potential UTF-8 mojibake by explicitly converting from utf-8
+            set line [encoding convertfrom utf-8 $line]
             set line [string trim $line]
             if {[string match "data: *" $line]} {
                 set payload [string trim [string range $line 5 end]]

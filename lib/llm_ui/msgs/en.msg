@@ -39,3 +39,5 @@
 ::msgcat::mcset en "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead." "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead."
 ::msgcat::mcset en "PNG Files" "PNG Files"
 ::msgcat::mcset en "All Files" "All Files"
+::msgcat::mcset en "Raw JSON Response" "Raw JSON Response"
+::msgcat::mcset en "Raw JSON Data" "Raw JSON Data"

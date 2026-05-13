@@ -267,7 +267,7 @@ namespace eval ::llm_ui {
             set top .json_popup
             if {[winfo exists $top]} { destroy $top }
             toplevel $top
-            wm title $top "Raw JSON Response"
+            wm title $top [::llm_ui::logic::mc "Raw JSON Response"]
             wm geometry $top 600x400
             set txt [text $top.t -wrap none -font {Courier 10}]
             set sbx [ttk::scrollbar $top.sbx -orient horizontal -command [list $txt xview]]
@@ -280,7 +280,13 @@ namespace eval ::llm_ui {
             grid rowconfigure $top 0 -weight 1
             grid columnconfigure $top 0 -weight 1
             
-            $txt insert 1.0 [::llm_ui::logic::json_pretty $json]
+
+
+            # Ensure the JSON is properly decoded from UTF-8 if it comes from raw accumulated_data
+            if {[catch {set decoded [encoding convertfrom utf-8 $json]}]} {
+                set decoded $json
+            }
+            $txt insert 1.0 [::llm_ui::logic::json_pretty $decoded]
             $txt configure -state disabled
         }
 

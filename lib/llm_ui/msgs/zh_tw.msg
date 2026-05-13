@@ -39,3 +39,5 @@
 ::msgcat::mcset zh_tw "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead." "導出 PNG 需要 'Img' 軟體包。請改為保存為 PostScript (.ps)。"
 ::msgcat::mcset zh_tw "PNG Files" "PNG 文件"
 ::msgcat::mcset zh_tw "All Files" "所有文件"
+::msgcat::mcset zh_tw "Raw JSON Response" "原始 JSON 響應"
+::msgcat::mcset zh_tw "Raw JSON Data" "原始 JSON 數據"

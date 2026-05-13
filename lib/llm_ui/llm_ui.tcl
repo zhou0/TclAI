@@ -333,6 +333,7 @@ namespace eval ::llm_ui {
 
         method cget {key} { return $options($key) }
 
+        export SSEHandler APIComplete CallAPI AppendHistory UpdateLastHistory AppendAssistantContent AddMessageButtons
         export configure cget SendMessage UpdateTranslations ShowJSON CopyText CopyAsImage AddMessageButtons
     }
 

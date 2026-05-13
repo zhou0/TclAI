@@ -210,24 +210,19 @@ namespace eval ::llm_ui {
         }
 
         method CopyAsImage {txt} {
-            set filename [tk_getSaveFile -defaultextension ".png" -filetypes {{"PNG Files" ".png"} {"All Files" "*.*"}}]
+            set filetypes [list \
+                [list [::llm_ui::logic::mc "PNG Files"] ".png"] \
+                [list [::llm_ui::logic::mc "PostScript Files"] ".ps"] \
+                [list [::llm_ui::logic::mc "All Files"] "*"] \
+            ]
+            set filename [tk_getSaveFile -defaultextension ".png" -filetypes $filetypes]
             if {$filename eq ""} return
 
+            set temp_top .temp_render
             if {[catch {
-                # Ensure the canvas is visible briefly for capturing if needed
-                set temp_top .temp_render
                 if {[winfo exists $temp_top]} { destroy $temp_top }
                 toplevel $temp_top
-                wm title $temp_top "Rendering Answer..."
-
-                # We use a trick to render to a photo image
-                # Standard Tk without Img or specific drivers lacks robust canvas-to-photo
-                # But since we can't rely on 'window' format, we'll inform the user
-                # or try a simpler approach if available.
-                # For now, let's fix the immediate crash and provide a better error.
-
-                # Check for Img package which is standard for high-quality export
-                set has_img [expr {![catch {package require Img}]}]
+                wm title $temp_top [::llm_ui::logic::mc "Rendering Answer..."]
 
                 set c [canvas $temp_top.c -bg white -highlightthickness 0]
                 set tid [$c create text 10 10 -text $txt -anchor nw -width 600 -font {Helvetica 12}]
@@ -239,24 +234,28 @@ namespace eval ::llm_ui {
 
                 update idletasks
 
-                # Try PostScript export as a fallback if photo-from-window fails
-                # and Img is not present. Most modern Tcl/Tk can at least do PS.
-                if {[catch {
-                    # If the user really wants PNG and we don't have Img,
-                    # we have a limitation.
-                    # Standard Tk 8.6 can write PNG from photo images.
-                    # The problem is getting canvas into a photo image.
-
-                    # Try 'window' format again but catch it specifically
-                    set img [image create photo]
-                    $img copy $c
-                    $img write $filename -format png
-                    image delete $img
-                } err]} {
-                    # Final fallback: explain the missing dependency
-                    error [::llm_ui::logic::mc "Exporting images requires the 'Img' package or Tk 8.6 features not available in this environment."]
+                if {[string match -nocase "*.ps" $filename]} {
+                    $c postscript -file $filename
+                } else {
+                    # Attempt PNG export
+                    if {[catch {
+                        # Modern Tk with Img package
+                        package require Img
+                        set img [image create photo -format window -data $c]
+                        $img write $filename -format png
+                        image delete $img
+                    } err]} {
+                        # Fallback for some Tk 8.6 environments that might support 'copy' from window
+                        if {[catch {
+                            set img [image create photo]
+                            $img copy $c
+                            $img write $filename -format png
+                            image delete $img
+                        } err2]} {
+                             error [::llm_ui::logic::mc "Exporting PNG requires the 'Img' package. Please save as PostScript (.ps) instead."]
+                        }
+                    }
                 }
-
                 destroy $temp_top
             } err]} {
                 if {[winfo exists $temp_top]} { destroy $temp_top }

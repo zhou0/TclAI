@@ -14,6 +14,11 @@ namespace eval ::llm_ui::logic {
 
     if {[info commands ::tls::socket] ne ""} {
         http::register https 443 [list ::tls::socket -autoservername 1]
+        http::register HTTPS 443 [list ::tls::socket -autoservername 1]
+    }
+
+    proc is_https_available {} {
+        return [expr {[info commands ::tls::socket] ne ""}]
     }
 
     proc mc {src} {
@@ -143,12 +148,12 @@ namespace eval ::llm_ui::logic {
 
     proc extract_ids {json key} {
         set ids {}
-        set pattern "\"$key\":\\s*\"([^\"]+)\""
+        set pattern "\"$key\":\\s*\"(\[^\"]+)\""
         set matches [regexp -all -inline $pattern $json]
         foreach {full match} $matches { lappend ids $match }
 
         if {[llength $ids] == 0} {
-             set pattern "\"([^\"]+)\""
+             set pattern "\"(\[^\"]+)\""
              set matches [regexp -all -inline $pattern $json]
              foreach {full match} $matches {
                 if {$match ne "id" && $match ne "object" && $match ne "models" && $match ne "data"} {

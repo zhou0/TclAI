@@ -41,3 +41,5 @@
 ::msgcat::mcset zh_cn "All Files" "所有文件"
 ::msgcat::mcset zh_cn "Raw JSON Response" "原始 JSON 响应"
 ::msgcat::mcset zh_cn "Raw JSON Data" "原始 JSON 数据"
+::msgcat::mcset zh_cn "User" "用户"
+::msgcat::mcset zh_cn "Assistant" "助手"

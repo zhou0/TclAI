@@ -65,11 +65,12 @@ namespace eval ::llm_ui {
 
         method AppendHistory {role msg} {
             $history configure -state normal
+            set display_role [::llm_ui::logic::mc $role]
             if {$role eq "Assistant" && $msg eq "..."} {
                 set last_assistant_marker [$history index "end - 1c"]
-                $history insert end "$role: $msg\n\n"
+                $history insert end "$display_role: $msg\n\n"
             } else {
-                $history insert end "$role: $msg\n"
+                $history insert end "$display_role: $msg\n"
                 if {$role eq "Assistant"} {
                     my AddMessageButtons $msg
                 } else {
@@ -185,7 +186,8 @@ namespace eval ::llm_ui {
                 set assistant_msg ""
                 set payloads [::llm_ui::logic::parse_sse "" sse_buffer]
                 if {$last_assistant_marker ne ""} {
-                    set assistant_msg [string range [$history get $last_assistant_marker "end - 1c"] 11 end]
+                    set prefix "[::llm_ui::logic::mc "Assistant"]: "
+                    set assistant_msg [string range [$history get $last_assistant_marker "end - 1c"] [string length $prefix] end]
                     set assistant_msg [string trim $assistant_msg]
                     lappend messages [list role "assistant" content $assistant_msg]
                     my SaveHistory
@@ -326,7 +328,7 @@ namespace eval ::llm_ui {
             if {$last_assistant_marker ne ""} {
                 $history delete $last_assistant_marker end
             }
-            $history insert end "Assistant: $msg\n"
+            $history insert end "[::llm_ui::logic::mc "Assistant"]: $msg\n"
 
             my AddMessageButtons $msg $last_raw_json
 

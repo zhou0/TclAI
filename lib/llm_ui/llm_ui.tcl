@@ -146,8 +146,7 @@ namespace eval ::llm_ui {
 
             if {$options(-stream)} {
                 if {[catch {
-                    set stream_token info_lbl [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] \
-                        -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
+                    set stream_token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
                 } err]} {
                     my UpdateLastHistory "Error: $err"
                 }

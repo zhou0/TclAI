@@ -9,7 +9,7 @@ namespace eval ::llm_ui {
     variable use_streaming 1
 
     ::oo::class create ChatWidgetClass {
-        variable w history input send options messages last_raw_json last_assistant_marker sse_buffer accumulated_data stream_token
+        variable w history input send options messages last_raw_json last_assistant_marker sse_buffer accumulated_data stream_token info_lbl
 
         constructor {path args} {
             set w $path
@@ -29,12 +29,14 @@ namespace eval ::llm_ui {
             set options(-system_prompt) "You are a helpful assistant."
 
             ttk::frame $w
+            set info_lbl [ttk::label $w.info -anchor w]
             set history [text $w.history -height 15 -state disabled -wrap word]
             $history tag configure right_aligned -justify right
 
             set input [text $w.input -height 3 -wrap word]
             set send [ttk::button $w.send -text [::llm_ui::logic::mc "Send"] -command [list [self] SendMessage]]
 
+            pack $info_lbl -side top -fill x -padx 5 -pady 2
             pack $history -side top -fill both -expand yes -padx 5 -pady 5
             pack $input -side left -fill both -expand yes -padx 5 -pady 5
             pack $send -side right -padx 5 -pady 5
@@ -44,11 +46,21 @@ namespace eval ::llm_ui {
             if {[llength $args] > 0} {
                 my configure {*}$args
             }
+            my UpdateInfoLabel
             my LoadHistory
         }
 
         method UpdateTranslations {} {
             $w.send configure -text [::llm_ui::logic::mc "Send"]
+            my UpdateInfoLabel
+        }
+
+        method UpdateInfoLabel {} {
+            set p $options(-provider)
+            set m $options(-model)
+            if {$p eq ""} { set p [::llm_ui::logic::mc "None"] }
+            if {$m eq ""} { set m [::llm_ui::logic::mc "None"] }
+            $info_lbl configure -text "[::llm_ui::logic::mc "Provider"]: $p | [::llm_ui::logic::mc "Model"]: $m"
         }
 
         method SendMessage {} {
@@ -68,13 +80,17 @@ namespace eval ::llm_ui {
             set display_role [::llm_ui::logic::mc $role]
             if {$role eq "Assistant" && $msg eq "..."} {
                 set last_assistant_marker [$history index "end - 1c"]
-                $history insert end "$display_role: $msg\n\n"
+                $history insert end "$display_role: $msg
+
+"
             } else {
-                $history insert end "$display_role: $msg\n"
+                $history insert end "$display_role: $msg
+"
                 if {$role eq "Assistant"} {
                     my AddMessageButtons $msg
                 } else {
-                    $history insert end "\n"
+                    $history insert end "
+"
                 }
             }
             $history configure -state disabled
@@ -130,8 +146,7 @@ namespace eval ::llm_ui {
 
             if {$options(-stream)} {
                 if {[catch {
-                    set stream_token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] \
-                        -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
+                    set stream_token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
                 } err]} {
                     my UpdateLastHistory "Error: $err"
                 }
@@ -320,7 +335,9 @@ namespace eval ::llm_ui {
             set btn_idx [$history index "end - 1c"]
             $history window create end -window $f_path -padx 5
             $history tag add right_aligned "$btn_idx linestart" "$btn_idx lineend"
-            $history insert end "\n\n"
+            $history insert end "
+
+"
         }
 
         method UpdateLastHistory {msg} {
@@ -328,7 +345,8 @@ namespace eval ::llm_ui {
             if {$last_assistant_marker ne ""} {
                 $history delete $last_assistant_marker end
             }
-            $history insert end "[::llm_ui::logic::mc "Assistant"]: $msg\n"
+            $history insert end "[::llm_ui::logic::mc "Assistant"]: $msg
+"
 
             my AddMessageButtons $msg $last_raw_json
 
@@ -376,6 +394,7 @@ namespace eval ::llm_ui {
             if {[llength $args] == 0} { return [array get options] }
             if {[llength $args] == 1} { return $options([lindex $args 0]) }
             foreach {key val} $args { set options($key) $val }
+            my UpdateInfoLabel
         }
 
         method cget {key} { return $options($key) }
@@ -540,6 +559,7 @@ namespace eval ::llm_ui {
 
             ttk::label $f.lk -text [::llm_ui::logic::mc "API Key"]
             set e_k [ttk::entry $f.ek -show "*"]
+            bind $e_k <KeyRelease> [list [self] SyncKey]
             grid $f.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
 
@@ -731,7 +751,8 @@ namespace eval ::llm_ui {
             } err]} {
                 $top.f.bf.ok configure -state normal
                 $top.f.bf.cancel configure -state normal
-                ::ttk::messagebox::show $top [::llm_ui::logic::mc "Add Provider Error"] "[::llm_ui::logic::mc "Test connection failed."]\n$err" "error"
+                ::ttk::messagebox::show $top [::llm_ui::logic::mc "Add Provider Error"] "[::llm_ui::logic::mc "Test connection failed."]
+$err" "error"
             }
         }
 
@@ -832,7 +853,19 @@ namespace eval ::llm_ui {
             $chatW configure -model $model
             my SavePreferences
         }
-        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SaveAllSettings UpdateTranslations SavePreferences AddProvider TestAndAddProvider
+
+        method SyncKey {} {
+            set key [$w.config.ek get]
+            $chatW configure -api_key $key
+            set idx [$cb_p current]
+            if {$idx != -1} {
+                set p [lindex $providers_data $idx]
+                set new_p {}
+                foreach {k v} $p { if {$k eq "api_key"} { lappend new_p $k $key } else { lappend new_p $k $v } }
+                set providers_data [lreplace $providers_data $idx $idx $new_p]
+            }
+        }
+        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SyncKey SaveAllSettings UpdateTranslations SavePreferences AddProvider TestAndAddProvider
     }
 
     proc ChatWidget {path args} {

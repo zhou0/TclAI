@@ -41,3 +41,5 @@
 ::msgcat::mcset en "All Files" "All Files"
 ::msgcat::mcset en "Raw JSON Response" "Raw JSON Response"
 ::msgcat::mcset en "Raw JSON Data" "Raw JSON Data"
+::msgcat::mcset en "User" "User"
+::msgcat::mcset en "Assistant" "Assistant"

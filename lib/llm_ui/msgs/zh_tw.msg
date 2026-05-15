@@ -3,7 +3,7 @@
 ::msgcat::mcset zh_tw "Provider" "服務商"
 ::msgcat::mcset zh_tw "Model" "模型"
 ::msgcat::mcset zh_tw "API Key" "API 密鑰"
-::msgcat::mcset zh_tw "Change API 密鑰" "更改 API 密鑰"
+::msgcat::mcset zh_tw "Change API Key" "更改 API 密鑰"
 ::msgcat::mcset zh_tw "Refresh Models" "刷新模型列表"
 ::msgcat::mcset zh_tw "Default Prompt" "默認提示詞"
 ::msgcat::mcset zh_tw "System Prompt" "系統提示詞"

@@ -1,24 +1,77 @@
 package provide llm_ui::logic 0.1
 
 package require http
-catch {package require tls}
 package require msgcat
 
 namespace eval ::llm_ui::logic {
     variable script_dir [file dirname [info script]]
+    variable tls_initialized 0
 
     proc mcload_msgs {} {
         variable script_dir
         ::msgcat::mcload [file join $script_dir msgs]
     }
 
-    if {[info commands ::tls::socket] ne ""} {
-        http::register https 443 [list ::tls::socket -autoservername 1]
-        http::register HTTPS 443 [list ::tls::socket -autoservername 1]
+    proc init_tls {} {
+        variable tls_initialized
+        if {$tls_initialized} { return 1 }
+
+        # Add common macOS Tcl package paths if on Darwin
+        global tcl_platform auto_path
+        if {$tcl_platform(os) eq "Darwin"} {
+            set paths {/opt/homebrew/lib /usr/local/lib /usr/local/opt/tcl-tk/lib /opt/local/lib}
+            foreach p $paths {
+                if {[file exists $p] && [lsearch -exact $auto_path $p] == -1} {
+                    lappend auto_path $p
+                }
+            }
+        }
+
+        if {[catch {package require tls} res]} {
+            return 0
+        }
+
+        if {[info commands ::tls::socket] ne ""} {
+            http::register https 443 [list ::tls::socket -autoservername 1]
+            http::register HTTPS 443 [list ::tls::socket -autoservername 1]
+            set tls_initialized 1
+            return 1
+        }
+        return 0
+    }
+
+    proc is_tls_available {} {
+        return [init_tls]
     }
 
     proc is_https_available {} {
-        return [expr {[info commands ::tls::socket] ne ""}]
+        return [is_tls_available]
+    }
+
+    proc http_get {url headers {timeout 10000}} {
+        if {[string match -nocase "https://*" $url]} {
+            if {![init_tls]} {
+                error [mc "HTTPS requires the 'tls' package, which is not installed or could not be loaded."]
+            }
+        }
+        set token [http::geturl $url -headers $headers -timeout $timeout]
+        set ncode [http::ncode $token]
+        set body [http::data $token]
+        http::cleanup $token
+        return [list $ncode $body]
+    }
+
+    proc http_post {url headers body {timeout 60000}} {
+        if {[string match -nocase "https://*" $url]} {
+            if {![init_tls]} {
+                error [mc "HTTPS requires the 'tls' package, which is not installed or could not be loaded."]
+            }
+        }
+        set token [http::geturl $url -headers $headers -query $body -type "application/json" -timeout $timeout]
+        set ncode [http::ncode $token]
+        set res [http::data $token]
+        http::cleanup $token
+        return [list $ncode $res]
     }
 
     proc mc {src} {
@@ -243,3 +296,6 @@ namespace eval ::llm_ui::logic {
         return $results
     }
 }
+
+# Try to initialize TLS on load
+::llm_ui::logic::init_tls

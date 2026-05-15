@@ -19,7 +19,7 @@ namespace eval ::llm_ui::logic {
         # Add common macOS Tcl package paths if on Darwin
         global tcl_platform auto_path
         if {$tcl_platform(os) eq "Darwin"} {
-            set paths {/opt/homebrew/lib /usr/local/lib /usr/local/opt/tcl-tk/lib}
+            set paths {/opt/homebrew/lib /usr/local/lib /usr/local/opt/tcl-tk/lib /opt/local/lib}
             foreach p $paths {
                 if {[file exists $p] && [lsearch -exact $auto_path $p] == -1} {
                     lappend auto_path $p

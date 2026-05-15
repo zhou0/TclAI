@@ -17,8 +17,73 @@ namespace eval ::llm_ui::logic {
         http::register HTTPS 443 [list ::tls::socket -autoservername 1]
     }
 
-    proc is_https_available {} {
+    proc is_tls_available {} {
         return [expr {[info commands ::tls::socket] ne ""}]
+    }
+
+    proc has_curl {} {
+        return [expr {[auto_execok curl] ne ""}]
+    }
+
+    proc is_https_available {} {
+        return [expr {[is_tls_available] || [has_curl]}]
+    }
+
+    proc http_get {url headers {timeout 10000}} {
+        if {[is_tls_available] || ![string match -nocase "https://*" $url]} {
+            set token [http::geturl $url -headers $headers -timeout $timeout]
+            set ncode [http::ncode $token]
+            set body [http::data $token]
+            http::cleanup $token
+            return [list $ncode $body]
+        } elseif {[has_curl]} {
+            set curl_cmd [list curl -s -w "\n%{http_code}" -L $url]
+            foreach {k v} $headers { lappend curl_cmd -H "$k: $v" }
+            if {[catch {exec {*}$curl_cmd} output]} {
+                if {[lindex $::errorCode 0] eq "CHILDSTATUS"} {
+                    set lines [split $output "\n"]
+                    set ncode [string trim [lindex $lines end]]
+                    set body [join [lrange $lines 0 end-1] "\n"]
+                    return [list $ncode $body]
+                }
+                error $output
+            }
+            set lines [split $output "\n"]
+            set ncode [string trim [lindex $lines end]]
+            set body [join [lrange $lines 0 end-1] "\n"]
+            return [list $ncode $body]
+        } else {
+            error [mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
+        }
+    }
+
+    proc http_post {url headers body {timeout 60000}} {
+        if {[is_tls_available] || ![string match -nocase "https://*" $url]} {
+            set token [http::geturl $url -headers $headers -query $body -type "application/json" -timeout $timeout]
+            set ncode [http::ncode $token]
+            set res [http::data $token]
+            http::cleanup $token
+            return [list $ncode $res]
+        } elseif {[has_curl]} {
+            set curl_cmd [list curl -s -w "\n%{http_code}" -L -X POST $url]
+            foreach {k v} $headers { lappend curl_cmd -H "$k: $v" }
+            lappend curl_cmd -d $body
+            if {[catch {exec {*}$curl_cmd} output]} {
+                if {[lindex $::errorCode 0] eq "CHILDSTATUS"} {
+                    set lines [split $output "\n"]
+                    set ncode [string trim [lindex $lines end]]
+                    set res [join [lrange $lines 0 end-1] "\n"]
+                    return [list $ncode $res]
+                }
+                error $output
+            }
+            set lines [split $output "\n"]
+            set ncode [string trim [lindex $lines end]]
+            set res [join [lrange $lines 0 end-1] "\n"]
+            return [list $ncode $res]
+        } else {
+            error [mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
+        }
     }
 
     proc mc {src} {

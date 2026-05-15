@@ -31,7 +31,7 @@
 ::msgcat::mcset en "Use Streaming" "Use Streaming"
 ::msgcat::mcset en "Copy Answer" "Copy Answer"
 ::msgcat::mcset en "Copy Answer as Image" "Copy Answer as Image"
-::msgcat::mcset en "HTTPS requires the 'tls' package, which is not installed." "HTTPS requires the 'tls' package, which is not installed."
+::msgcat::mcset en "HTTPS requires the 'tls' package or 'curl' command, which are not available." "HTTPS requires the 'tls' package or 'curl' command, which are not available."
 ::msgcat::mcset en "Export Error" "Export Error"
 ::msgcat::mcset en "Exporting images requires the 'Img' package or Tk 8.6 features not available in this environment." "Exporting images requires the 'Img' package or Tk 8.6 features not available in this environment."
 ::msgcat::mcset en "PostScript Files" "PostScript Files"

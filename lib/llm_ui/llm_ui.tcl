@@ -560,6 +560,7 @@ namespace eval ::llm_ui {
 
             ttk::label $f.lk -text [::llm_ui::logic::mc "API Key"]
             set e_k [ttk::entry $f.ek -show "*"]
+            bind $e_k <KeyRelease> [list [self] SyncKey]
             grid $f.lk -row $row -column 0 -sticky e -padx 5 -pady 5
             grid $e_k -row $row -column 1 -sticky ew -padx 5 -pady 5
 
@@ -853,7 +854,19 @@ $err" "error"
             $chatW configure -model $model
             my SavePreferences
         }
-        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SaveAllSettings UpdateTranslations SavePreferences AddProvider TestAndAddProvider
+
+        method SyncKey {} {
+            set key [$w.config.ek get]
+            $chatW configure -api_key $key
+            set idx [$cb_p current]
+            if {$idx != -1} {
+                set p [lindex $providers_data $idx]
+                set new_p {}
+                foreach {k v} $p { if {$k eq "api_key"} { lappend new_p $k $key } else { lappend new_p $k $v } }
+                set providers_data [lreplace $providers_data $idx $idx $new_p]
+            }
+        }
+        export OnProviderSelected ChangeKey RefreshModels OnModelSelected OnLanguageSelected SyncKey SaveAllSettings UpdateTranslations SavePreferences AddProvider TestAndAddProvider
     }
 
     proc ChatWidget {path args} {

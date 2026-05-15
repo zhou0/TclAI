@@ -43,3 +43,4 @@
 ::msgcat::mcset zh_tw "Raw JSON Data" "原始 JSON 數據"
 ::msgcat::mcset zh_tw "User" "用戶"
 ::msgcat::mcset zh_tw "Assistant" "助手"
+::msgcat::mcset zh_tw "None" "無"

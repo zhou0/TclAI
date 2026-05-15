@@ -31,7 +31,7 @@
 ::msgcat::mcset zh_cn "Use Streaming" "使用流式传输"
 ::msgcat::mcset zh_cn "Copy Answer" "复制回答"
 ::msgcat::mcset zh_cn "Copy Answer as Image" "复制回答为图片"
-::msgcat::mcset zh_cn "HTTPS requires the 'tls' package or 'curl' command, which are not available." "HTTPS 需要 'tls' 软件包或 'curl' 命令，但均不可用。"
+::msgcat::mcset zh_cn "HTTPS requires the 'tls' package, which is not installed." "HTTPS 需要 'tls' 软件包，但尚未安装。"
 ::msgcat::mcset zh_cn "Export Error" "导出错误"
 ::msgcat::mcset zh_cn "Exporting images requires the 'Img' package or Tk 8.6 features not available in this environment." "导出图片需要 'Img' 软件包或此环境不具备的 Tk 8.6 功能。"
 ::msgcat::mcset zh_cn "PostScript Files" "PostScript 文件"

@@ -113,7 +113,7 @@ namespace eval ::llm_ui {
 
             set url "$options(-base_url)/chat/completions"
             if {[string match -nocase "https://*" $url] && ![::llm_ui::logic::is_https_available]} {
-                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
             }
             set sys_msg [list role "system" content $options(-system_prompt)]
             set full_messages [linsert $messages 0 $sys_msg]
@@ -145,23 +145,11 @@ namespace eval ::llm_ui {
             set accumulated_data ""
 
             if {$options(-stream)} {
-                if {[::llm_ui::logic::is_tls_available] || ![string match -nocase "https://*" $url]} {
-                    if {[catch {
-                        set stream_token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] \
-                            -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
-                    } err]} {
-                        my UpdateLastHistory "Error: $err"
-                    }
-                } elseif {[::llm_ui::logic::has_curl]} {
-                    set curl_cmd [list curl -s -L -X POST $url]
-                    foreach {k v} $headers { lappend curl_cmd -H "$k: $v" }
-                    lappend curl_cmd -d $body
-                    if {[catch {open "|$curl_cmd" r} chan]} {
-                        my UpdateLastHistory "Error: $chan"
-                    } else {
-                        fconfigure $chan -blocking 0 -translation binary
-                        fileevent $chan readable [list [self] CurlSSEHandler $chan]
-                    }
+                if {[catch {
+                    set stream_token [http::geturl $url -headers $headers -query [encoding convertto utf-8 $body] \
+                        -type "application/json" -handler [list [self] SSEHandler] -command [list [self] APIComplete]]
+                } err]} {
+                    my UpdateLastHistory "Error: $err"
                 }
             } else {
                 if {[catch {
@@ -184,34 +172,6 @@ namespace eval ::llm_ui {
                     }
                 } err]} {
                     my UpdateLastHistory "Error: $err"
-                }
-            }
-        }
-
-        method CurlSSEHandler {chan} {
-            if {[eof $chan]} {
-                catch {close $chan}
-                set last_raw_json $accumulated_data
-                set assistant_msg ""
-                set payloads [::llm_ui::logic::parse_sse "" sse_buffer]
-                if {$last_assistant_marker ne ""} {
-                    set prefix "[::llm_ui::logic::mc "Assistant"]: "
-                    set assistant_msg [string range [$history get $last_assistant_marker "end - 1c"] [string length $prefix] end]
-                    set assistant_msg [string trim $assistant_msg]
-                    lappend messages [list role "assistant" content $assistant_msg]
-                    my SaveHistory
-                }
-                my UpdateLastHistory $assistant_msg
-                return
-            }
-            set chunk [read $chan]
-            append accumulated_data $chunk
-            set payloads [::llm_ui::logic::parse_sse $chunk sse_buffer]
-            foreach p $payloads {
-                set pattern "\"content\":\\s*\"((?:\[^\"\\\\\]|\\\\.)*)\""
-                if {[regexp $pattern $p match content]} {
-                    set content [::llm_ui::logic::unescape_json $content]
-                    my AppendAssistantContent $content
                 }
             }
         }
@@ -379,14 +339,14 @@ namespace eval ::llm_ui {
             close $fh
         }
 
-        export SSEHandler APIComplete CallAPI AppendHistory UpdateLastHistory AppendAssistantContent AddMessageButtons CurlSSEHandler
+        export SSEHandler APIComplete CallAPI AppendHistory UpdateLastHistory AppendAssistantContent AddMessageButtons
         export configure cget SendMessage UpdateTranslations ShowJSON CopyText CopyAsImage AddMessageButtons
     }
 
     ::oo::class create SettingsWidgetClass {
         variable w chatW providers_data current_p_name cb_p cb_m ent_key txt_prompt ent_base_url
 
-        constructor {path chat_widget} {
+        constructor {path chat_widget args} {
             set w $path
             set chatW $chat_widget
             set providers_data {}
@@ -583,7 +543,7 @@ namespace eval ::llm_ui {
 
             set test_url "$url/models"
             if {[string match -nocase "https://*" $test_url] && ![::llm_ui::logic::is_https_available]} {
-                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
             }
             set headers [list \
                 "Authorization" "Bearer [string trim $key]" \
@@ -700,7 +660,7 @@ namespace eval ::llm_ui {
         method FetchModels {base_url} {
             set url "$base_url/models"
             if {[string match -nocase "https://*" $url] && ![::llm_ui::logic::is_https_available]} {
-                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
+                error [::llm_ui::logic::mc "HTTPS requires the 'tls' package, which is not installed."]
             }
             set headers [list \
                 "Authorization" "Bearer [string trim [$chatW cget -api_key]]" \
@@ -733,10 +693,10 @@ namespace eval ::llm_ui {
     }
 
     proc ChatWidget {path args} {
-        return [ChatWidgetClass create $path {*}$args]
+        return [ChatWidgetClass create ::${path}:obj $path {*}$args]
     }
 
     proc SettingsWidget {path chat_widget args} {
-        return [SettingsWidgetClass create $path $chat_widget {*}$args]
+        return [SettingsWidgetClass create ::${path}:obj $path $chat_widget {*}$args]
     }
 }

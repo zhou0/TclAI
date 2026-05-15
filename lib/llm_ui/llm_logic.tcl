@@ -1,89 +1,77 @@
 package provide llm_ui::logic 0.1
 
 package require http
-catch {package require tls}
 package require msgcat
 
 namespace eval ::llm_ui::logic {
     variable script_dir [file dirname [info script]]
+    variable tls_initialized 0
 
     proc mcload_msgs {} {
         variable script_dir
         ::msgcat::mcload [file join $script_dir msgs]
     }
 
-    if {[info commands ::tls::socket] ne ""} {
-        http::register https 443 [list ::tls::socket -autoservername 1]
-        http::register HTTPS 443 [list ::tls::socket -autoservername 1]
+    proc init_tls {} {
+        variable tls_initialized
+        if {$tls_initialized} { return 1 }
+
+        # Add common macOS Tcl package paths if on Darwin
+        global tcl_platform auto_path
+        if {$tcl_platform(os) eq "Darwin"} {
+            set paths {/opt/homebrew/lib /usr/local/lib /usr/local/opt/tcl-tk/lib}
+            foreach p $paths {
+                if {[file exists $p] && [lsearch -exact $auto_path $p] == -1} {
+                    lappend auto_path $p
+                }
+            }
+        }
+
+        if {[catch {package require tls} res]} {
+            return 0
+        }
+
+        if {[info commands ::tls::socket] ne ""} {
+            http::register https 443 [list ::tls::socket -autoservername 1]
+            http::register HTTPS 443 [list ::tls::socket -autoservername 1]
+            set tls_initialized 1
+            return 1
+        }
+        return 0
     }
 
     proc is_tls_available {} {
-        return [expr {[info commands ::tls::socket] ne ""}]
-    }
-
-    proc has_curl {} {
-        return [expr {[auto_execok curl] ne ""}]
+        return [init_tls]
     }
 
     proc is_https_available {} {
-        return [expr {[is_tls_available] || [has_curl]}]
+        return [is_tls_available]
     }
 
     proc http_get {url headers {timeout 10000}} {
-        if {[is_tls_available] || ![string match -nocase "https://*" $url]} {
-            set token [http::geturl $url -headers $headers -timeout $timeout]
-            set ncode [http::ncode $token]
-            set body [http::data $token]
-            http::cleanup $token
-            return [list $ncode $body]
-        } elseif {[has_curl]} {
-            set curl_cmd [list curl -s -w "\n%{http_code}" -L $url]
-            foreach {k v} $headers { lappend curl_cmd -H "$k: $v" }
-            if {[catch {exec {*}$curl_cmd} output]} {
-                if {[lindex $::errorCode 0] eq "CHILDSTATUS"} {
-                    set lines [split $output "\n"]
-                    set ncode [string trim [lindex $lines end]]
-                    set body [join [lrange $lines 0 end-1] "\n"]
-                    return [list $ncode $body]
-                }
-                error $output
+        if {[string match -nocase "https://*" $url]} {
+            if {![init_tls]} {
+                error [mc "HTTPS requires the 'tls' package, which is not installed or could not be loaded."]
             }
-            set lines [split $output "\n"]
-            set ncode [string trim [lindex $lines end]]
-            set body [join [lrange $lines 0 end-1] "\n"]
-            return [list $ncode $body]
-        } else {
-            error [mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
         }
+        set token [http::geturl $url -headers $headers -timeout $timeout]
+        set ncode [http::ncode $token]
+        set body [http::data $token]
+        http::cleanup $token
+        return [list $ncode $body]
     }
 
     proc http_post {url headers body {timeout 60000}} {
-        if {[is_tls_available] || ![string match -nocase "https://*" $url]} {
-            set token [http::geturl $url -headers $headers -query $body -type "application/json" -timeout $timeout]
-            set ncode [http::ncode $token]
-            set res [http::data $token]
-            http::cleanup $token
-            return [list $ncode $res]
-        } elseif {[has_curl]} {
-            set curl_cmd [list curl -s -w "\n%{http_code}" -L -X POST $url]
-            foreach {k v} $headers { lappend curl_cmd -H "$k: $v" }
-            lappend curl_cmd -d $body
-            if {[catch {exec {*}$curl_cmd} output]} {
-                if {[lindex $::errorCode 0] eq "CHILDSTATUS"} {
-                    set lines [split $output "\n"]
-                    set ncode [string trim [lindex $lines end]]
-                    set res [join [lrange $lines 0 end-1] "\n"]
-                    return [list $ncode $res]
-                }
-                error $output
+        if {[string match -nocase "https://*" $url]} {
+            if {![init_tls]} {
+                error [mc "HTTPS requires the 'tls' package, which is not installed or could not be loaded."]
             }
-            set lines [split $output "\n"]
-            set ncode [string trim [lindex $lines end]]
-            set res [join [lrange $lines 0 end-1] "\n"]
-            return [list $ncode $res]
-        } else {
-            error [mc "HTTPS requires the 'tls' package or 'curl' command, which are not available."]
         }
+        set token [http::geturl $url -headers $headers -query $body -type "application/json" -timeout $timeout]
+        set ncode [http::ncode $token]
+        set res [http::data $token]
+        http::cleanup $token
+        return [list $ncode $res]
     }
 
     proc mc {src} {
@@ -308,3 +296,6 @@ namespace eval ::llm_ui::logic {
         return $results
     }
 }
+
+# Try to initialize TLS on load
+::llm_ui::logic::init_tls

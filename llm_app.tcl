@@ -1,5 +1,16 @@
 encoding system utf-8
 set script_dir [file dirname [info script]]
+
+# Add common macOS Tcl package paths early if on Darwin
+if {$tcl_platform(os) eq "Darwin"} {
+    set mac_paths {/opt/homebrew/lib /usr/local/lib /usr/local/opt/tcl-tk/lib}
+    foreach p $mac_paths {
+        if {[file exists $p] && [lsearch -exact $auto_path $p] == -1} {
+            lappend auto_path $p
+        }
+    }
+}
+
 lappend auto_path [file join $script_dir lib]
 
 package require Tk
@@ -81,8 +92,8 @@ pack .nav -side left -fill y
 pack .main -side right -fill both -expand yes
 
 # Screens
-::llm_ui::ChatWidget .main.chat
-::llm_ui::SettingsWidget .main.settings .main.chat
+set chat_obj [::llm_ui::ChatWidget .main.chat]
+::llm_ui::SettingsWidget .main.settings $chat_obj
 
 proc ShowScreen {id} {
     if {$id eq "toggle"} {

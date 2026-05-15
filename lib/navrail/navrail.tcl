@@ -5,16 +5,51 @@ package provide ttk::m3::navrail 0.1.0
 
 namespace eval ttk::m3 {
     proc InitStyles {} {
-        ttk::style configure M3NavRail.TFrame -background "#FEF7FF"
-        ttk::style configure M3NavRail.Item.TLabel -background "#FEF7FF" -foreground "#49454F" -font {Helvetica 9} -anchor center
-        ttk::style configure M3NavRail.Active.TLabel -background "#FEF7FF" -foreground "#1D1B20" -font {Helvetica 9 bold} -anchor center
-        ttk::style configure M3NavRail.Indicator.TFrame -background "#E8DEF8"
-        ttk::style configure M3NavRail.Hover.TFrame -background "#F3EDF7"
-        ttk::style configure M3NavRail.Expanded.TLabel -background "#FEF7FF" -foreground "#49454F" -font {Helvetica 10} -anchor w
-        ttk::style configure M3NavRail.ExpandedActive.TLabel -background "#FEF7FF" -foreground "#1D1B20" -font {Helvetica 10 bold} -anchor w
+        set theme [ttk::style theme use]
+        set isDark 0
+
+        # Heuristic to detect dark theme
+        set bg [ttk::style lookup . -background]
+        if {$bg ne ""} {
+            if {[catch {
+                if {[string match "#*" $bg]} {
+                    set r [scan [string range $bg 1 2] %x]
+                    set g [scan [string range $bg 3 4] %x]
+                    set b [scan [string range $bg 5 6] %x]
+                    if {[expr {($r*299 + $g*587 + $b*114)/1000}] < 128} { set isDark 1 }
+                }
+            }]} {
+                if {$bg in {black gray10 gray20 DarkSlateGray}} { set isDark 1 }
+            }
+        }
+
+        if {$isDark} {
+            set surface "#141218"
+            set onSurface "#E6E0E9"
+            set onSurfaceVariant "#CAC4D0"
+            set secondaryContainer "#4A4458"
+            set onSecondaryContainer "#E8DEF8"
+            set hoverBg "#2B2930"
+        } else {
+            set surface "#FEF7FF"
+            set onSurface "#1D1B20"
+            set onSurfaceVariant "#49454F"
+            set secondaryContainer "#E8DEF8"
+            set onSecondaryContainer "#1D192B"
+            set hoverBg "#F3EDF7"
+        }
+
+        ttk::style configure M3NavRail.TFrame -background $surface
+        ttk::style configure M3NavRail.Item.TLabel -background $surface -foreground $onSurfaceVariant -font {Helvetica 9} -anchor center
+        ttk::style configure M3NavRail.Active.TLabel -background $surface -foreground $onSurface -font {Helvetica 9 bold} -anchor center
+        ttk::style configure M3NavRail.Indicator.TFrame -background $secondaryContainer
+        ttk::style configure M3NavRail.Hover.TFrame -background $hoverBg
+        ttk::style configure M3NavRail.Expanded.TLabel -background $surface -foreground $onSurfaceVariant -font {Helvetica 10} -anchor w
+        ttk::style configure M3NavRail.ExpandedActive.TLabel -background $surface -foreground $onSurface -font {Helvetica 10 bold} -anchor w
     }
 
     ::oo::class create NavRailClass {
+
         variable w container items selected state options
 
         constructor {path args} {
@@ -31,15 +66,34 @@ namespace eval ttk::m3 {
             set f [ttk::frame $w.f -style [my cget -style]]
             pack $f -fill both -expand 1 -pady 10
             if {[llength $args] > 0} { my configure {*}$args }
+
+            my UpdateStyles
+            bind $container <<ThemeChanged>> [list $w UpdateStyles]
         }
 
+
+        method UpdateStyles {} {
+            ::ttk::m3::InitStyles
+            set itemStyle [my cget -style]
+            set bg [ttk::style lookup $itemStyle -background]
+            if {$bg eq ""} { set bg "#FEF7FF" }
+            [my f] configure -style $itemStyle
+            foreach id [dict keys $items] {
+                set data [dict get $items $id]
+                set itemFrame [dict get $data frame]
+                set wrapper [dict get $data wrapper]
+                set label [dict get $data label]
+                $itemFrame configure -style $itemStyle
+                $wrapper configure -bg $bg
+                my update_item_layout $id
+            }
+            my select $selected 1
+        }
         method add_item {id icon text} {
             set itemStyle [my cget -style]
             set itemFrame [ttk::frame [my f].item_$id -style $itemStyle -cursor hand2]
             set bg [ttk::style lookup $itemStyle -background]
-            if {$bg eq ""} { set bg "#FEF7FF" }
             set fg [ttk::style lookup M3NavRail.Item.TLabel -foreground]
-            if {$fg eq ""} { set fg "#49454F" }
             set iconWrapper [canvas $itemFrame.wrapper -width 80 -height 44 -bg $bg -highlightthickness 0]
             $iconWrapper create text 40 22 -text $icon -fill $fg -font {Helvetica 16} -tags icon
             set label [ttk::label $itemFrame.label -text $text -style M3NavRail.Item.TLabel]
@@ -132,11 +186,9 @@ namespace eval ttk::m3 {
             if {$id ne $selected} {
                 if {$entering} {
                     set hoverBg [ttk::style lookup M3NavRail.Hover.TFrame -background]
-                    if {$hoverBg eq ""} { set hoverBg "#F3EDF7" }
                     $wrapper configure -bg $hoverBg
                 } else {
                     set bg [ttk::style lookup [my cget -style] -background]
-                    if {$bg eq ""} { set bg "#FEF7FF" }
                     $wrapper configure -bg $bg
                 }
             }
@@ -149,7 +201,6 @@ namespace eval ttk::m3 {
                 set oldWrapper [dict get $oldData wrapper]
                 $oldWrapper delete indicator
                 set inactiveFg [ttk::style lookup M3NavRail.Item.TLabel -foreground]
-                if {$inactiveFg eq ""} { set inactiveFg "#49454F" }
                 $oldWrapper itemconfigure icon -fill $inactiveFg
                 [dict get $oldData label] configure -style [expr {$state eq "collapsed" ? "M3NavRail.Item.TLabel" : "M3NavRail.Expanded.TLabel"}]
             }
@@ -157,9 +208,7 @@ namespace eval ttk::m3 {
             set data [dict get $items $id]
             set wrapper [dict get $data wrapper]
             set indicatorBg [ttk::style lookup M3NavRail.Indicator.TFrame -background]
-            if {$indicatorBg eq ""} { set indicatorBg "#E8DEF8" }
             set activeFg [ttk::style lookup M3NavRail.Active.TLabel -foreground]
-            if {$activeFg eq ""} { set activeFg "#1D1B20" }
             set r 16
             if {$state eq "collapsed"} { set x1 12; set y1 6; set x2 68; set y2 38 } else { set x1 8; set y1 6; set x2 64; set y2 38 }
             $wrapper delete indicator
@@ -173,6 +222,7 @@ namespace eval ttk::m3 {
         }
 
         method get_selection {} { return $selected }
+        export UpdateStyles
         method f {} { return $w.f }
         method unknown {method args} { return [$container $method {*}$args] }
     }

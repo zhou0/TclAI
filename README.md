@@ -10,3 +10,6 @@ Key features include:
 - **Cross-Platform**: Native look and feel on Windows, macOS, and Linux.
 
 Easily integrate and switch between your favorite AI services in a clean, responsive desktop application.
+
+**Screenshot**:
+<img src="https://github.com/zhou0/TclAI/blob/main/assets/macOS-screenshot.png" />

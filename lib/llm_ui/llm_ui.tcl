@@ -573,7 +573,7 @@ namespace eval ::llm_ui {
             grid $cb_m -row $row -column 1 -sticky ew -padx 5 -pady 5
             bind $cb_m <<ComboboxSelected>> [list [self] OnModelSelected %W]
 
-            ttk::button $f.btn_refresh -text [::llm_ui::logic::mc "Refresh Models"] -command [list [self] RefreshModels]
+            ttk::button $f.btn_refresh -text [::llm_ui::logic::mc "Refresh Models"] -command [list [self] RefreshModels 1]
             grid $f.btn_refresh -row $row -column 2 -padx 5 -pady 5
             incr row
 
@@ -778,13 +778,13 @@ $err" "error"
             my SavePreferences default_prompt $default_prompt system_prompt $system_prompt use_streaming $::llm_ui::use_streaming
         }
 
-        method RefreshModels {} {
+        method RefreshModels {{force 0}} {
             set p_idx [my FindProviderIdx $current_p_name]
             if {$p_idx == -1} return
             set p [lindex $providers_data $p_idx]
             set models {}
             foreach {k v} $p { if {$k eq "models"} { set models $v; break } }
-            if {[llength $models] > 0} {
+            if {!$force && [llength $models] > 0} {
                 set ids {}
                 foreach m $models {
                     if {[llength $m] > 1} {
@@ -822,9 +822,8 @@ $err" "error"
                 set p [lindex $providers_data $p_idx]
                 set m_list {}
                 foreach id $ids { lappend m_list $id }
-                set new_p {}
-                foreach {k v} $p { if {$k eq "models"} { lappend new_p $k $m_list } else { lappend new_p $k $v } }
-                set providers_data [lreplace $providers_data $p_idx $p_idx $new_p]
+                dict set p models $m_list
+                set providers_data [lreplace $providers_data $p_idx $p_idx $p]
                 my SavePreferences
             }
             my UpdateModelList $ids
